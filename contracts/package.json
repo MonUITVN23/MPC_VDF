@@ -1,0 +1,26 @@
+{
+  "name": "mpc-vdf-contracts",
+  "version": "0.1.0",
+  "description": "Hybrid VDF-MPC Protocol for Cross-chain DAOs — Smart Contracts",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "test:gas": "REPORT_GAS=true hardhat test",
+    "deploy:sender": "hardhat run scripts/deploy/01_deploy_sender.ts --network sepolia",
+    "deploy:receiver": "hardhat run scripts/deploy/02_deploy_receiver.ts --network amoy",
+    "benchmark": "hardhat run scripts/benchmark/e2e_latency.ts",
+    "monitor:e2e": "ts-node scripts/benchmark/e2e_latency.ts"
+  },
+  "devDependencies": {
+    "@axelar-network/axelar-gmp-sdk-solidity": "^5.6.4",
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "chai": "^4.4.1",
+    "dotenv": "^17.3.1",
+    "ethers": "^6.11.0",
+    "hardhat": "^2.22.0",
+    "hardhat-gas-reporter": "^1.0.10",
+    "mocha": "^10.4.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.0"
+  }
+}

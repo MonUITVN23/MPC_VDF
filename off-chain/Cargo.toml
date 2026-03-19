@@ -1,0 +1,46 @@
+[workspace]
+members = [
+    "crypto_engine",
+    "network_module",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["mpc-vdf contributors"]
+license = "MIT"
+
+[workspace.dependencies]
+# VDF - MANDATORY: Imaginary Quadratic Class Groups (NO RSA)
+vdf = "0.1.0"
+classgroup = "0.1.0"
+
+# MPC / Threshold Signatures
+bls-signatures = "0.15"
+blstrs = "0.7"
+group = "0.13"
+rand = "0.8"
+sha2 = "0.10"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dotenvy = "0.15"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Ethereum RPC
+ethers = { version = "2", features = ["abigen", "ws", "rustls"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "1"
+
+# Hex encoding
+hex = "0.4"

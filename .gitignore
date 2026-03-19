@@ -1,0 +1,9 @@
+.env
+node_modules/
+dist/
+target/
+artifacts/
+cache/
+typechain-types/
+*.log
+docs/gas-report.txt
