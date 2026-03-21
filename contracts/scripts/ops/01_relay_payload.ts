@@ -13,6 +13,7 @@ function requiredEnv(name: string): string {
 
 async function main() {
   const senderAddress = requiredEnv("RANDOM_SENDER_ADDRESS");
+  const requestId = requiredEnv("REQUEST_ID");
   const gasFeeWei = requiredEnv("AXELAR_NATIVE_GAS_FEE_WEI");
   const yHex = requiredEnv("VDF_Y_HEX");
   const piHex = requiredEnv("VDF_PI_HEX");
@@ -26,6 +27,7 @@ async function main() {
   }
 
   console.log(`RandomSender: ${senderAddress}`);
+  console.log(`requestId: ${requestId}`);
   console.log(`y bytes length: ${ethers.getBytes(yHex).length}`);
   console.log(`pi bytes length: ${ethers.getBytes(piHex).length}`);
   console.log(`seedCollective bytes length: ${ethers.getBytes(seedCollectiveHex).length}`);
@@ -34,7 +36,8 @@ async function main() {
   console.log(`Axelar native gas fee (wei): ${gasFeeWei}`);
 
   const sender = await ethers.getContractAt("RandomSender", senderAddress);
-  const tx = await (sender as any).requestRandomness(
+  const tx = await (sender as any).relayVDFPayload(
+    BigInt(requestId),
     yHex,
     piHex,
     seedCollectiveHex,
@@ -47,12 +50,12 @@ async function main() {
   const gmpLink = `https://testnet.axelarscan.io/gmp/${tx.hash}`;
   const searchLink = `https://testnet.axelarscan.io/search?query=${tx.hash}`;
 
-  const log = receipt?.logs.find((l: any) => l.topics[0] === sender.interface.getEvent("LogRequest")?.topicHash);
+  const log = receipt?.logs.find((l: any) => l.topics[0] === sender.interface.getEvent("AxelarRequestDispatched")?.topicHash);
   if (!log) {
     console.log(`Tx hash: ${tx.hash}`);
     console.log(`AxelarScan GMP: ${gmpLink}`);
     console.log(`AxelarScan Search: ${searchLink}`);
-    console.log("No LogRequest event decoded from receipt logs.");
+    console.log("No AxelarRequestDispatched event decoded from receipt logs.");
     return;
   }
 
@@ -62,7 +65,7 @@ async function main() {
   });
 
   console.log(`Tx hash: ${tx.hash}`);
-  console.log(`requestId: ${parsed?.args.requestId.toString()}`);
+  console.log(`requestId relayed: ${parsed?.args.requestId.toString()}`);
   console.log(`AxelarScan GMP: ${gmpLink}`);
   console.log(`AxelarScan Search: ${searchLink}`);
 }

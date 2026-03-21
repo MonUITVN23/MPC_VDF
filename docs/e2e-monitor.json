@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-03-16T20:29:12.776Z",
+  "generatedAt": "2026-03-21T13:17:02.340Z",
   "lookbackBlocks": 150,
-  "sourceLatestBlock": 10459682,
-  "destinationLatestBlock": 35282705,
+  "sourceLatestBlock": 10491021,
+  "destinationLatestBlock": 35485734,
   "destinationChainId": 80002,
   "latencySummary": {
     "count": 0,
@@ -10,41 +10,5 @@
     "p50Seconds": 0,
     "p95Seconds": 0
   },
-  "rows": [
-    {
-      "requestId": 10,
-      "sourceTxHash": "0x39d8ac13dcaad79669f53b3937b28a9f19f71d60158e21d3692d59f638370eff",
-      "sourceBlock": 10459587,
-      "sourceTimestamp": 1773691476,
-      "status": "pending"
-    },
-    {
-      "requestId": 11,
-      "sourceTxHash": "0xeeefb4b4cade78863f7d2d629e09e399eb993ff075328ff7fdecd612360117e3",
-      "sourceBlock": 10459588,
-      "sourceTimestamp": 1773691488,
-      "status": "pending"
-    },
-    {
-      "requestId": 12,
-      "sourceTxHash": "0xfa1235b25e1fb8c01f510fc3b0603985c263500480001701494bda93fbf55fe1",
-      "sourceBlock": 10459640,
-      "sourceTimestamp": 1773692232,
-      "status": "pending"
-    },
-    {
-      "requestId": 13,
-      "sourceTxHash": "0x547e3da899969c57fa0925b355d3def9c98a12eddff5bf2515845c63159fabed",
-      "sourceBlock": 10459648,
-      "sourceTimestamp": 1773692400,
-      "status": "pending"
-    },
-    {
-      "requestId": 14,
-      "sourceTxHash": "0x5b8e61c39a4bb44b9bc453e289922c7026657a311efcfafb7f9fe51628b5aa18",
-      "sourceBlock": 10459648,
-      "sourceTimestamp": 1773692400,
-      "status": "pending"
-    }
-  ]
+  "rows": []
 }

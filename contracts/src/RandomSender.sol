@@ -14,12 +14,11 @@ contract RandomSender {
     IAxelarGasService public immutable gasService;
 
     error NativeGasPaymentRequired();
+    error InvalidRequestId();
 
     event LogRequest(
         uint256 indexed requestId,
-        address indexed requester,
-        bytes32 payloadHash,
-        uint256 timestamp
+        uint256 userSeed
     );
 
     event AxelarRequestDispatched(
@@ -39,13 +38,24 @@ contract RandomSender {
         destinationAddress = destinationAddress_;
     }
 
-    function requestRandomness(
+    function requestRandomness(uint256 userSeed) external returns (uint256 requestId) {
+        requestId = nextRequestId;
+        unchecked {
+            nextRequestId = requestId + 1;
+        }
+
+        emit LogRequest(requestId, userSeed);
+    }
+
+    function relayVDFPayload(
+        uint256 requestId,
         bytes calldata y,
         bytes calldata pi,
         bytes calldata seedCollective,
         bytes calldata modulus,
         bytes calldata blsSignature
-    ) external payable returns (uint256 requestId) {
+    ) external payable {
+        if (requestId == 0 || requestId >= nextRequestId) revert InvalidRequestId();
         if (msg.value == 0) revert NativeGasPaymentRequired();
         require(y.length > 0, "empty y");
         require(pi.length > 0, "empty pi");
@@ -53,15 +63,8 @@ contract RandomSender {
         require(modulus.length > 0, "empty modulus");
         require(blsSignature.length > 0, "empty bls signature");
 
-        requestId = nextRequestId;
-        unchecked {
-            nextRequestId = requestId + 1;
-        }
-
         bytes memory payload = abi.encode(requestId, y, pi, seedCollective, modulus, blsSignature);
         bytes32 payloadHash = keccak256(payload);
-
-        emit LogRequest(requestId, msg.sender, payloadHash, block.timestamp);
 
         gasService.payNativeGasForContractCall{value: msg.value}(
             address(this),

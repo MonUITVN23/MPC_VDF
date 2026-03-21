@@ -5,6 +5,7 @@ pub mod dkg;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::time::Instant;
 
 // Default PoC configuration (matches CLAUDE.md spec)
 pub const DEFAULT_TOTAL_NODES: usize = 4;
@@ -25,6 +26,13 @@ pub struct RandomnessExport {
 pub struct PipelineMetadata {
 	pub session_id: String,
 	pub seed_collective: [u8; 32],
+	pub benchmark: BenchmarkMetrics,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BenchmarkMetrics {
+	pub t2_mpc_ms: u128,
+	pub t3_vdf_ms: u128,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,6 +46,7 @@ pub fn run_randomness_pipeline_with_seed(
 	seed_user: &[u8],
 	t: u64,
 ) -> Result<PipelineOutput> {
+	let start_t2 = Instant::now();
 	let collective = mpc::init_collective_seed_default()?;
 
 	let mut hasher = Sha256::new();
@@ -46,13 +55,17 @@ pub fn run_randomness_pipeline_with_seed(
 	hasher.update(seed_user);
 	hasher.update(collective.seed_collective);
 	let seed_collective: [u8; 32] = hasher.finalize().into();
+	let t2_mpc_ms = start_t2.elapsed().as_millis();
 
+	let start_t3 = Instant::now();
 	let vdf_output = vdf::evaluate_and_generate_proof(&seed_collective, t)?;
+	let t3_vdf_ms = start_t3.elapsed().as_millis();
 
 	Ok(PipelineOutput {
 		metadata: PipelineMetadata {
 			session_id: session_id.to_owned(),
 			seed_collective,
+			benchmark: BenchmarkMetrics { t2_mpc_ms, t3_vdf_ms },
 		},
 		payload: RandomnessExport {
 			y: vdf_output.y_bytes,

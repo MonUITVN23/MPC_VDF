@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="860" viewBox="0 0 1280 860">
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="650" viewBox="0 0 1280 650">
 	<rect width="100%" height="100%" fill="#f8fafc"/>
 	<text x="40" y="52" font-size="30" font-weight="700" fill="#0f172a">MPC-VDF E2E Monitoring Dashboard (Temporary)</text>
-	<text x="40" y="82" font-size="14" fill="#475569">Generated at 2026-03-16T20:29:12.776Z</text>
+	<text x="40" y="82" font-size="14" fill="#475569">Generated at 2026-03-21T13:17:02.340Z</text>
 
 	<rect x="40" y="105" width="240" height="70" rx="12" fill="#e2e8f0"/>
 	<rect x="300" y="105" width="240" height="70" rx="12" fill="#dcfce7"/>
@@ -10,13 +10,13 @@
 	<rect x="820" y="105" width="240" height="70" rx="12" fill="#dbeafe"/>
 
 	<text x="60" y="132" font-size="13" fill="#334155">Total Requests</text>
-	<text x="60" y="158" font-size="24" font-weight="700" fill="#0f172a">5</text>
+	<text x="60" y="158" font-size="24" font-weight="700" fill="#0f172a">0</text>
 
 	<text x="320" y="132" font-size="13" fill="#166534">Relayed</text>
 	<text x="320" y="158" font-size="24" font-weight="700" fill="#166534">0</text>
 
 	<text x="580" y="132" font-size="13" fill="#92400e">Pending</text>
-	<text x="580" y="158" font-size="24" font-weight="700" fill="#92400e">5</text>
+	<text x="580" y="158" font-size="24" font-weight="700" fill="#92400e">0</text>
 
 	<text x="840" y="132" font-size="13" fill="#1d4ed8">Avg Latency (s)</text>
 	<text x="840" y="158" font-size="24" font-weight="700" fill="#1e3a8a">0.00</text>
@@ -34,48 +34,4 @@
 	<text x="700" y="625" font-size="13" font-weight="700" fill="#0f172a">relayTx</text>
 	<text x="960" y="625" font-size="13" font-weight="700" fill="#0f172a">sourceTime</text>
 	
-			<line x1="40" y1="598" x2="1240" y2="598" stroke="#e5e7eb" />
-			<text x="60" y="622" font-size="13" fill="#111827">14</text>
-			<text x="160" y="622" font-size="13" fill="#d97706">pending</text>
-			<text x="300" y="622" font-size="13" fill="#111827">-</text>
-			<text x="430" y="622" font-size="13" fill="#111827">0x5b8e61c3…b5aa18</text>
-			<text x="700" y="622" font-size="13" fill="#111827">-</text>
-			<text x="960" y="622" font-size="12" fill="#374151">2026-03-16T20:20:00.000Z</text>
-			
-
-			<line x1="40" y1="640" x2="1240" y2="640" stroke="#e5e7eb" />
-			<text x="60" y="664" font-size="13" fill="#111827">13</text>
-			<text x="160" y="664" font-size="13" fill="#d97706">pending</text>
-			<text x="300" y="664" font-size="13" fill="#111827">-</text>
-			<text x="430" y="664" font-size="13" fill="#111827">0x547e3da8…9fabed</text>
-			<text x="700" y="664" font-size="13" fill="#111827">-</text>
-			<text x="960" y="664" font-size="12" fill="#374151">2026-03-16T20:20:00.000Z</text>
-			
-
-			<line x1="40" y1="682" x2="1240" y2="682" stroke="#e5e7eb" />
-			<text x="60" y="706" font-size="13" fill="#111827">12</text>
-			<text x="160" y="706" font-size="13" fill="#d97706">pending</text>
-			<text x="300" y="706" font-size="13" fill="#111827">-</text>
-			<text x="430" y="706" font-size="13" fill="#111827">0xfa1235b2…f55fe1</text>
-			<text x="700" y="706" font-size="13" fill="#111827">-</text>
-			<text x="960" y="706" font-size="12" fill="#374151">2026-03-16T20:17:12.000Z</text>
-			
-
-			<line x1="40" y1="724" x2="1240" y2="724" stroke="#e5e7eb" />
-			<text x="60" y="748" font-size="13" fill="#111827">11</text>
-			<text x="160" y="748" font-size="13" fill="#d97706">pending</text>
-			<text x="300" y="748" font-size="13" fill="#111827">-</text>
-			<text x="430" y="748" font-size="13" fill="#111827">0xeeefb4b4…0117e3</text>
-			<text x="700" y="748" font-size="13" fill="#111827">-</text>
-			<text x="960" y="748" font-size="12" fill="#374151">2026-03-16T20:04:48.000Z</text>
-			
-
-			<line x1="40" y1="766" x2="1240" y2="766" stroke="#e5e7eb" />
-			<text x="60" y="790" font-size="13" fill="#111827">10</text>
-			<text x="160" y="790" font-size="13" fill="#d97706">pending</text>
-			<text x="300" y="790" font-size="13" fill="#111827">-</text>
-			<text x="430" y="790" font-size="13" fill="#111827">0x39d8ac13…370eff</text>
-			<text x="700" y="790" font-size="13" fill="#111827">-</text>
-			<text x="960" y="790" font-size="12" fill="#374151">2026-03-16T20:04:36.000Z</text>
-			
 </svg>

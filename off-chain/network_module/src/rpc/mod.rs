@@ -6,7 +6,7 @@ use ethers::prelude::*;
 abigen!(
 	RandomSender,
 	r#"[
-		event LogRequest(uint256 indexed requestId, address indexed requester, bytes seedUser, uint256 timestamp)
+		event LogRequest(uint256 indexed requestId, uint256 userSeed)
 	]"#
 );
 

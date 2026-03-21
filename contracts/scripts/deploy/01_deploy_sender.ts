@@ -1,5 +1,7 @@
 import { ethers, network } from "hardhat";
 import * as dotenv from "dotenv";
+import * as fs from "fs";
+import * as path from "path";
 
 dotenv.config({ path: "../.env" });
 
@@ -11,6 +13,23 @@ function requiredEnv(name: string): string {
     throw new Error(`Missing env var: ${name}`);
   }
   return value;
+}
+
+function updateEnvVar(filePath: string, key: string, value: string): void {
+  const line = `${key}=${value}`;
+
+  if (!fs.existsSync(filePath)) {
+    fs.writeFileSync(filePath, `${line}\n`, "utf8");
+    return;
+  }
+
+  const content = fs.readFileSync(filePath, "utf8");
+  const pattern = new RegExp(`^${key}=.*$`, "m");
+  const next = pattern.test(content)
+    ? content.replace(pattern, line)
+    : `${content.trimEnd()}\n${line}\n`;
+
+  fs.writeFileSync(filePath, next, "utf8");
 }
 
 async function main() {
@@ -33,10 +52,14 @@ async function main() {
 
   const address = await contract.getAddress();
   const deployTx = contract.deploymentTransaction();
+  const envPath = path.resolve(__dirname, "../../../.env");
+
+  updateEnvVar(envPath, "RANDOM_SENDER_ADDRESS", address);
 
   console.log("RandomSender deployed successfully");
   console.log(`Address: ${address}`);
   console.log(`Tx Hash: ${deployTx?.hash ?? "N/A"}`);
+  console.log(`Updated .env: RANDOM_SENDER_ADDRESS=${address}`);
 }
 
 main().catch((error) => {
