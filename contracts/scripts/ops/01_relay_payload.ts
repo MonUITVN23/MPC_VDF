@@ -43,6 +43,7 @@ async function main() {
     seedCollectiveHex,
     modulusHex,
     blsSignatureHex,
+    1,
     { value: BigInt(gasFeeWei) }
   );
   const receipt = await tx.wait();
@@ -50,12 +51,12 @@ async function main() {
   const gmpLink = `https://testnet.axelarscan.io/gmp/${tx.hash}`;
   const searchLink = `https://testnet.axelarscan.io/search?query=${tx.hash}`;
 
-  const log = receipt?.logs.find((l: any) => l.topics[0] === sender.interface.getEvent("AxelarRequestDispatched")?.topicHash);
+  const log = receipt?.logs.find((l: any) => l.topics[0] === sender.interface.getEvent("PayloadDispatched")?.topicHash);
   if (!log) {
     console.log(`Tx hash: ${tx.hash}`);
     console.log(`AxelarScan GMP: ${gmpLink}`);
     console.log(`AxelarScan Search: ${searchLink}`);
-    console.log("No AxelarRequestDispatched event decoded from receipt logs.");
+    console.log("No PayloadDispatched event decoded from receipt logs.");
     return;
   }
 

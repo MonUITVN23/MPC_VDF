@@ -5,6 +5,13 @@ import "@axelar-network/axelar-gmp-sdk-solidity/contracts/interfaces/IAxelarGate
 import "@axelar-network/axelar-gmp-sdk-solidity/contracts/interfaces/IAxelarGasService.sol";
 
 contract RandomSender {
+    enum BridgeType {
+        None,
+        Axelar,
+        LayerZero,
+        Wormhole
+    }
+
     uint256 public nextRequestId = 1;
 
     string public constant DESTINATION_CHAIN = "polygon-sepolia";
@@ -13,25 +20,35 @@ contract RandomSender {
     IAxelarGateway public immutable gateway;
     IAxelarGasService public immutable gasService;
 
-    error NativeGasPaymentRequired();
+    uint256 private _reentrancyStatus = 1;
+
+    error InvalidBridgeId();
     error InvalidRequestId();
+    error InvalidAddress();
+    error InvalidDestinationAddress();
+    error InsufficientFee();
+    error EmptyPayloadPart();
+    error ReentrancyGuard();
 
-    event LogRequest(
-        uint256 indexed requestId,
-        uint256 userSeed
-    );
+    modifier nonReentrant() {
+        if (_reentrancyStatus != 1) revert ReentrancyGuard();
+        _reentrancyStatus = 2;
+        _;
+        _reentrancyStatus = 1;
+    }
 
-    event AxelarRequestDispatched(
+    event LogRequest(uint256 indexed requestId, uint256 userSeed, uint256 timestamp);
+
+    event PayloadDispatched(
         uint256 indexed requestId,
-        string destinationChain,
-        string destinationAddress,
-        bytes32 payloadHash
+        BridgeType indexed bridgeId,
+        uint256 feePaid,
+        uint256 timestamp
     );
 
     constructor(address gateway_, address gasService_, string memory destinationAddress_) {
-        require(gateway_ != address(0), "invalid gateway");
-        require(gasService_ != address(0), "invalid gas service");
-        require(bytes(destinationAddress_).length > 0, "invalid destination address");
+        if (gateway_ == address(0) || gasService_ == address(0)) revert InvalidAddress();
+        if (bytes(destinationAddress_).length == 0) revert InvalidDestinationAddress();
 
         gateway = IAxelarGateway(gateway_);
         gasService = IAxelarGasService(gasService_);
@@ -44,7 +61,7 @@ contract RandomSender {
             nextRequestId = requestId + 1;
         }
 
-        emit LogRequest(requestId, userSeed);
+        emit LogRequest(requestId, userSeed, block.timestamp);
     }
 
     function relayVDFPayload(
@@ -53,34 +70,42 @@ contract RandomSender {
         bytes calldata pi,
         bytes calldata seedCollective,
         bytes calldata modulus,
-        bytes calldata blsSignature
-    ) external payable {
+        bytes calldata blsSignature,
+        BridgeType bridgeId
+    ) external payable nonReentrant {
         if (requestId == 0 || requestId >= nextRequestId) revert InvalidRequestId();
-        if (msg.value == 0) revert NativeGasPaymentRequired();
-        require(y.length > 0, "empty y");
-        require(pi.length > 0, "empty pi");
-        require(seedCollective.length > 0, "empty seed collective");
-        require(modulus.length > 0, "empty modulus");
-        require(blsSignature.length > 0, "empty bls signature");
+        if (bridgeId == BridgeType.None || bridgeId == BridgeType.Wormhole) revert InvalidBridgeId();
+        if (
+            y.length == 0 ||
+            pi.length == 0 ||
+            seedCollective.length == 0 ||
+            modulus.length == 0 ||
+            blsSignature.length == 0
+        ) revert EmptyPayloadPart();
 
         bytes memory payload = abi.encode(requestId, y, pi, seedCollective, modulus, blsSignature);
-        bytes32 payloadHash = keccak256(payload);
 
-        gasService.payNativeGasForContractCall{value: msg.value}(
+        if (bridgeId == BridgeType.Axelar) {
+            _dispatchViaAxelar(payload, msg.value);
+        } else {
+            _dispatchViaLayerZero(payload, msg.value);
+        }
+
+        emit PayloadDispatched(requestId, bridgeId, msg.value, block.timestamp);
+    }
+
+    function _dispatchViaAxelar(bytes memory payload, uint256 fee) internal {
+        if (fee == 0) revert InsufficientFee();
+
+        gasService.payNativeGasForContractCall{value: fee}(
             address(this),
             DESTINATION_CHAIN,
             destinationAddress,
             payload,
             msg.sender
         );
-
         gateway.callContract(DESTINATION_CHAIN, destinationAddress, payload);
-
-        emit AxelarRequestDispatched(
-            requestId,
-            DESTINATION_CHAIN,
-            destinationAddress,
-            payloadHash
-        );
     }
+
+    function _dispatchViaLayerZero(bytes memory, uint256) internal {}
 }
