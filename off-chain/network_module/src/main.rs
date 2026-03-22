@@ -178,6 +178,7 @@ async fn main() -> Result<()> {
     let mut from_block = current_block(&source_provider)
         .await?
         .saturating_sub(startup_lookback_blocks);
+    let mut last_seen_block = 0u64;
 
     tracing::info!(
         "Relayer started: sender={}, from_block={}, poll={}s, t={}, lookback_blocks={}",
@@ -187,9 +188,23 @@ async fn main() -> Result<()> {
         vdf_t,
         startup_lookback_blocks
     );
+    tracing::info!(
+        "Bắt đầu lắng nghe tại địa chỉ {} (mode=HTTP polling, interval={}s)",
+        sender_addr,
+        poll_secs
+    );
 
     loop {
         let latest = current_block(&source_provider).await?;
+        if latest != last_seen_block {
+            tracing::info!(
+                "Đã nhận được block mới: latest={}, scanning_range={}..{}",
+                latest,
+                from_block,
+                latest
+            );
+            last_seen_block = latest;
+        }
 
         if latest >= from_block {
             let events = fetch_log_requests_in_range(
@@ -199,6 +214,13 @@ async fn main() -> Result<()> {
                 latest,
             )
             .await?;
+
+            tracing::info!(
+                "Scan LogRequest xong: from_block={}, to_block={}, events_found={}",
+                from_block,
+                latest,
+                events.len()
+            );
 
             for ev in events {
                 let request_id = ev.request_id.as_u64();
