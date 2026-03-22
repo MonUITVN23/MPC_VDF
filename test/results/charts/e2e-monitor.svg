@@ -2,7 +2,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="650" viewBox="0 0 1280 650">
 	<rect width="100%" height="100%" fill="#f8fafc"/>
 	<text x="40" y="52" font-size="30" font-weight="700" fill="#0f172a">MPC-VDF E2E Monitoring Dashboard (Temporary)</text>
-	<text x="40" y="82" font-size="14" fill="#475569">Generated at 2026-03-21T13:17:02.340Z</text>
+	<text x="40" y="82" font-size="14" fill="#475569">Generated at 2026-03-22T15:08:04.689Z</text>
 
 	<rect x="40" y="105" width="240" height="70" rx="12" fill="#e2e8f0"/>
 	<rect x="300" y="105" width="240" height="70" rx="12" fill="#dcfce7"/>
