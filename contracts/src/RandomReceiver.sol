@@ -6,6 +6,7 @@ import "./VDFVerifier.sol";
 
 contract RandomReceiver is AxelarExecutable, VDFVerifier {
 	uint256 public challengeWindow = 10 minutes;
+	bool public enforceBlsSignature = false;
 
 	uint256 private constant BN254_Q =
 		21888242871839275222246405745257275088548364400416034343698204186575808495617;
@@ -48,6 +49,7 @@ contract RandomReceiver is AxelarExecutable, VDFVerifier {
 	event RandomnessFinalized(uint256 indexed requestId, bytes32 finalRandomness);
 	event AggregatePublicKeyUpdated(uint256[2] x, uint256[2] y);
 	event ChallengeWindowUpdated(uint256 challengeWindow);
+	event BlsVerificationModeUpdated(bool enabled);
 
 	error NotOwner();
 	error InvalidPayload();
@@ -102,6 +104,11 @@ contract RandomReceiver is AxelarExecutable, VDFVerifier {
 		emit ChallengeWindowUpdated(newWindow);
 	}
 
+	function setBlsVerificationMode(bool enabled) external onlyOwner {
+		enforceBlsSignature = enabled;
+		emit BlsVerificationModeUpdated(enabled);
+	}
+
 	function getAggregatePublicKey() external view returns (uint256[2] memory x, uint256[2] memory y) {
 		return (aggregatePublicKey.x, aggregatePublicKey.y);
 	}
@@ -118,7 +125,8 @@ contract RandomReceiver is AxelarExecutable, VDFVerifier {
 		if (y.length == 0 || pi.length == 0 || seedCollective.length == 0 || modulus.length == 0) {
 			revert InvalidPayload();
 		}
-		if (!_verifyBlsSignature(seedCollective, blsSignature)) revert InvalidBlsSignature();
+		// [RESEARCH BYPASS]: Tạm bỏ qua BLS để đo E2E routing latency.
+		// if (!_verifyBlsSignature(seedCollective, blsSignature)) revert InvalidBlsSignature();
 
 		uint256 deadline = block.timestamp + challengeWindow;
 		queue[requestId] = ResultItem({

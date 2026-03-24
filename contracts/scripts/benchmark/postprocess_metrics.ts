@@ -19,13 +19,51 @@ type CryptoRow = {
 
 type E2ERow = {
 	request_id: number;
-	bridge_id: number;
 	t1_timestamp: number;
 	t2_mpc_ms: number;
 	t3_vdf_ms: number;
 	t4_dispatch_ms: number;
+	bridge_name: string;
+	bridge_id_hex: string;
+	selected_bridge: string;
+	attempt_count: number;
+	fallback_hops: number;
+	dispatch_status: string;
+	error_reason: string;
 	tx_hash: string;
 };
+
+function parseCsvRow(line: string): string[] {
+	const values: string[] = [];
+	let current = "";
+	let inQuotes = false;
+
+	for (let i = 0; i < line.length; i++) {
+		const char = line[i];
+		const next = i + 1 < line.length ? line[i + 1] : "";
+
+		if (char === '"') {
+			if (inQuotes && next === '"') {
+				current += '"';
+				i += 1;
+				continue;
+			}
+			inQuotes = !inQuotes;
+			continue;
+		}
+
+		if (char === "," && !inQuotes) {
+			values.push(current);
+			current = "";
+			continue;
+		}
+
+		current += char;
+	}
+
+	values.push(current);
+	return values.map((value) => value.trim());
+}
 
 function parseNumber(value: string, field: string, line: number): number {
 	const num = Number(value);
@@ -127,11 +165,39 @@ function parseE2ECsv(csvPath: string): E2ERow[] {
 	const rows: E2ERow[] = [];
 	for (let i = 1; i < lines.length; i++) {
 		const lineNo = i + 1;
-		const [request_id, bridge_id, t1_timestamp, t2_mpc_ms, t3_vdf_ms, t4_dispatch_ms, tx_hash] =
-			lines[i].split(",");
+		const parts = parseCsvRow(lines[i]);
+		const [
+			request_id,
+			t1_timestamp,
+			t2_mpc_ms,
+			t3_vdf_ms,
+			t4_dispatch_ms,
+			bridge_name,
+			bridge_id_hex,
+			selected_bridge,
+			attempt_count,
+			fallback_hops,
+			dispatch_status,
+			error_reason,
+			tx_hash,
+		] = parts;
 
 		if (
-			[request_id, bridge_id, t1_timestamp, t2_mpc_ms, t3_vdf_ms, t4_dispatch_ms, tx_hash].some(
+			[
+				request_id,
+				t1_timestamp,
+				t2_mpc_ms,
+				t3_vdf_ms,
+				t4_dispatch_ms,
+				bridge_name,
+				bridge_id_hex,
+				selected_bridge,
+				attempt_count,
+				fallback_hops,
+				dispatch_status,
+				error_reason,
+				tx_hash,
+			].some(
 				(v) => v === undefined,
 			)
 		) {
@@ -141,11 +207,17 @@ function parseE2ECsv(csvPath: string): E2ERow[] {
 
 		rows.push({
 			request_id: parseNumber(request_id, "request_id", lineNo),
-			bridge_id: parseNumber(bridge_id, "bridge_id", lineNo),
 			t1_timestamp: parseNumber(t1_timestamp, "t1_timestamp", lineNo),
 			t2_mpc_ms: parseNumber(t2_mpc_ms, "t2_mpc_ms", lineNo),
 			t3_vdf_ms: parseNumber(t3_vdf_ms, "t3_vdf_ms", lineNo),
 			t4_dispatch_ms: parseNumber(t4_dispatch_ms, "t4_dispatch_ms", lineNo),
+			bridge_name: bridge_name,
+			bridge_id_hex: bridge_id_hex,
+			selected_bridge: selected_bridge,
+			attempt_count: parseNumber(attempt_count, "attempt_count", lineNo),
+			fallback_hops: parseNumber(fallback_hops, "fallback_hops", lineNo),
+			dispatch_status: dispatch_status,
+			error_reason: error_reason,
 			tx_hash: tx_hash.trim(),
 		});
 	}
@@ -187,15 +259,24 @@ function buildCryptoSummary(cryptoRows: CryptoRow[], inputPath: string) {
 }
 
 function buildE2ESummary(e2eRows: E2ERow[], inputPath: string) {
-	const grouped = groupBy(e2eRows, (r) => String(r.bridge_id));
+	const grouped = groupBy(e2eRows, (r) => r.selected_bridge || r.bridge_name || r.bridge_id_hex || "UNKNOWN");
 	const byBridge: Record<string, unknown> = {};
 
-	for (const [bridgeId, rows] of Object.entries(grouped)) {
-		byBridge[bridgeId] = {
+	for (const [bridgeName, rows] of Object.entries(grouped)) {
+		const successRows = rows.filter((r) => r.dispatch_status === "success");
+		const failedRows = rows.filter((r) => r.dispatch_status !== "success");
+		const fallbackRows = rows.filter((r) => r.fallback_hops > 0);
+
+		byBridge[bridgeName] = {
 			count: rows.length,
-			t1_to_t4_dispatch_latency_ms: computeStats(rows.map((r) => r.t4_dispatch_ms)),
+			success_count: successRows.length,
+			failed_count: failedRows.length,
+			fallback_count: fallbackRows.length,
+			t1_to_t4_dispatch_latency_ms: computeStats(successRows.map((r) => r.t4_dispatch_ms)),
 			t2_mpc_ms: computeStats(rows.map((r) => r.t2_mpc_ms)),
 			t3_vdf_ms: computeStats(rows.map((r) => r.t3_vdf_ms)),
+			attempt_count: computeStats(rows.map((r) => r.attempt_count)),
+			fallback_hops: computeStats(rows.map((r) => r.fallback_hops)),
 		};
 	}
 
@@ -210,7 +291,7 @@ function buildE2ESummary(e2eRows: E2ERow[], inputPath: string) {
 function main() {
 	const repoRoot = path.resolve(__dirname, "../../..");
 	const defaultCryptoCsv = path.resolve(repoRoot, "off-chain/crypto_benchmarks.csv");
-	const defaultE2ECsv = path.resolve(repoRoot, "off-chain/e2e_metrics.csv");
+	const defaultE2ECsv = path.resolve(repoRoot, "off-chain/e2e_metrics_v2.csv");
 
 	const cryptoCsvPath = process.env.CRYPTO_CSV_PATH || defaultCryptoCsv;
 	const e2eCsvPath = process.env.E2E_CSV_PATH || defaultE2ECsv;

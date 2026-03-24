@@ -13,10 +13,15 @@ use crypto_engine::run_randomness_pipeline_with_seed;
 use dotenvy::dotenv;
 use ethers::prelude::*;
 
-use network_module::bridges::{
-    AxelarRelayer, LayerZeroMockRelayer, MultiBridgeRouter, RelayPayload, WalletSigner,
-};
+use network_module::bridge_registry::resolve_bridge_priority;
+use network_module::bridges::{BridgeMetadata, BridgeRelayer, MultiBridgeRouter, RelayPayload, WalletSigner};
+use network_module::relayer_factory::{build_builtin_relayers, RelayerFactoryInput};
 use network_module::rpc::{current_block, fetch_log_requests_in_range, EthProvider};
+
+fn csv_escape(value: &str) -> String {
+    let escaped = value.replace('"', "\"\"");
+    format!("\"{escaped}\"")
+}
 
 fn env_required(name: &str) -> Result<String> {
     env::var(name).with_context(|| format!("missing required env var: {name}"))
@@ -24,6 +29,14 @@ fn env_required(name: &str) -> Result<String> {
 
 fn parse_address(name: &str, value: &str) -> Result<Address> {
     Address::from_str(value).with_context(|| format!("invalid address in {name}: {value}"))
+}
+
+fn env_required_one_of(primary: &str, fallback: &str) -> Result<String> {
+    env::var(primary)
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .or_else(|| env::var(fallback).ok().filter(|v| !v.trim().is_empty()))
+        .with_context(|| format!("missing required env var: {primary} (or fallback {fallback})"))
 }
 
 fn hex_env_to_bytes(name: &str) -> Result<Vec<u8>> {
@@ -42,15 +55,21 @@ fn optional_hex_env_to_bytes(name: &str) -> Result<Vec<u8>> {
     }
 }
 
-fn append_metrics_csv(
+fn append_metrics_csv_v2(
     file_path: &str,
     request_id: u64,
-    bridge_id: u8,
     t1_timestamp: u64,
     t2_mpc_ms: u128,
     t3_vdf_ms: u128,
     t4_dispatch_ms: u128,
-    tx_hash: H256,
+    bridge_name: &str,
+    bridge_id_hex: &str,
+    selected_bridge: &str,
+    attempt_count: u8,
+    fallback_hops: u8,
+    dispatch_status: &str,
+    error_reason: &str,
+    tx_hash: Option<H256>,
 ) -> Result<()> {
     let mut file = OpenOptions::new()
         .create(true)
@@ -67,15 +86,24 @@ fn append_metrics_csv(
     if is_empty {
         writeln!(
             file,
-            "request_id,bridge_id,t1_timestamp,t2_mpc_ms,t3_vdf_ms,t4_dispatch_ms,tx_hash"
+            "request_id,t1_timestamp,t2_mpc_ms,t3_vdf_ms,t4_dispatch_ms,bridge_name,bridge_id_hex,selected_bridge,attempt_count,fallback_hops,dispatch_status,error_reason,tx_hash"
         )
             .with_context(|| format!("failed writing header to csv: {file_path}"))?;
     }
 
+    let tx_hash_text = tx_hash
+        .map(|hash| format!("{:#x}", hash))
+        .unwrap_or_default();
+
     writeln!(
         file,
-        "{request_id},{bridge_id},{t1_timestamp},{t2_mpc_ms},{t3_vdf_ms},{t4_dispatch_ms},{:#x}",
-        tx_hash
+        "{request_id},{t1_timestamp},{t2_mpc_ms},{t3_vdf_ms},{t4_dispatch_ms},{},{},{},{attempt_count},{fallback_hops},{},{},{}",
+        csv_escape(bridge_name),
+        csv_escape(bridge_id_hex),
+        csv_escape(selected_bridge),
+        csv_escape(dispatch_status),
+        csv_escape(error_reason),
+        csv_escape(&tx_hash_text),
     )
     .with_context(|| format!("failed appending metrics row to csv: {file_path}"))?;
 
@@ -89,7 +117,10 @@ async fn main() -> Result<()> {
 
     let sepolia_rpc = env_required("SEPOLIA_RPC_URL")?;
     let private_key = env_required("PRIVATE_KEY")?;
-    let sender_addr = parse_address("RANDOM_SENDER_ADDRESS", &env_required("RANDOM_SENDER_ADDRESS")?)?;
+    let router_addr = parse_address(
+        "RANDOM_ROUTER_ADDRESS",
+        &env_required_one_of("RANDOM_ROUTER_ADDRESS", "RANDOM_SENDER_ADDRESS")?,
+    )?;
     let axelar_gas_service_addr =
         parse_address("AXELAR_GAS_SERVICE_ADDRESS", &env_required("AXELAR_GAS_SERVICE_ADDRESS")?)?;
     let vdf_modulus = hex_env_to_bytes("VDF_MODULUS_HEX")?;
@@ -135,6 +166,26 @@ async fn main() -> Result<()> {
         .and_then(|v| v.parse::<u32>().ok())
         .filter(|v| *v >= 11_000 && *v <= 12_000)
         .unwrap_or(12_000);
+    let layerzero_fee_buffer_bps = env::var("LAYERZERO_FEE_BUFFER_BPS")
+        .ok()
+        .and_then(|v| v.parse::<u32>().ok())
+        .filter(|v| *v >= 10_000 && *v <= 13_000)
+        .unwrap_or(11_000);
+    let wormhole_fee_buffer_bps = env::var("WORMHOLE_FEE_BUFFER_BPS")
+        .ok()
+        .and_then(|v| v.parse::<u32>().ok())
+        .filter(|v| *v >= 10_000 && *v <= 13_000)
+        .unwrap_or(11_000);
+    let bridge_priority = resolve_bridge_priority()?;
+    let metrics_file_path = env::var("E2E_METRICS_V2_PATH")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| "e2e_metrics_v2.csv".to_owned());
+    let bridge_timeout_secs = env::var("RELAYER_BRIDGE_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(90);
 
     let source_provider: Arc<EthProvider> = Arc::new(
         Provider::<Http>::try_from(sepolia_rpc)
@@ -159,20 +210,44 @@ async fn main() -> Result<()> {
         .with_chain_id(chain_id);
 
     let signer: Arc<WalletSigner> = Arc::new(SignerMiddleware::new((*source_provider).clone(), wallet));
-    let axelar_relayer = AxelarRelayer::new(
-        signer.clone(),
-        sender_addr,
-        axelar_gas_service_addr,
+    let mut available_relayers = build_builtin_relayers(RelayerFactoryInput {
+        signer: signer.clone(),
+        router_address: router_addr,
+        axelar_gas_service_address: axelar_gas_service_addr,
         axelar_destination_chain,
         axelar_destination_address,
         axelar_execution_gas_limit,
-        axelar_estimate_params.into(),
+        axelar_estimate_params: axelar_estimate_params.into(),
         axelar_fee_buffer_bps,
+        layerzero_fee_buffer_bps,
+        wormhole_fee_buffer_bps,
         cross_chain_fee_cap_wei,
         cross_chain_daily_budget_wei,
+    });
+
+    let mut relayers_with_metadata: Vec<(BridgeMetadata, Box<dyn BridgeRelayer + Send + Sync>)> = Vec::new();
+    for bridge_name in &bridge_priority.names {
+        match available_relayers.remove(bridge_name.as_str()) {
+            Some(relayer) => {
+                relayers_with_metadata.push((BridgeMetadata::from_name(bridge_name.as_str()), relayer));
+            }
+            None => {
+                tracing::warn!(bridge_name = %bridge_name, "bridge in BRIDGE_PRIORITY is unknown or duplicated; skipping");
+            }
+        }
+    }
+
+    if relayers_with_metadata.is_empty() {
+        anyhow::bail!(
+            "no valid bridge in BRIDGE_PRIORITY='{}'; supported bridges: AXELAR,LAYERZERO,WORMHOLE",
+            bridge_priority.raw
+        );
+    }
+
+    let router = MultiBridgeRouter::with_timeout(
+        relayers_with_metadata,
+        Duration::from_secs(bridge_timeout_secs),
     );
-    let layerzero_mock_relayer = LayerZeroMockRelayer::new();
-    let router = MultiBridgeRouter::default_with_priority(axelar_relayer, layerzero_mock_relayer);
 
     let mut processed_requests: HashSet<u64> = HashSet::new();
     let mut from_block = current_block(&source_provider)
@@ -181,16 +256,18 @@ async fn main() -> Result<()> {
     let mut last_seen_block = 0u64;
 
     tracing::info!(
-        "Relayer started: sender={}, from_block={}, poll={}s, t={}, lookback_blocks={}",
-        sender_addr,
+        "Relayer started: router={}, from_block={}, poll={}s, t={}, lookback_blocks={}",
+        router_addr,
         from_block,
         poll_secs,
         vdf_t,
         startup_lookback_blocks
     );
+    tracing::info!(bridge_priority = %bridge_priority.raw, source = %bridge_priority.source, "bridge failover priority loaded");
+    tracing::info!(bridge_timeout_secs, "per-bridge relay timeout configured");
     tracing::info!(
         "Bắt đầu lắng nghe tại địa chỉ {} (mode=HTTP polling, interval={}s)",
-        sender_addr,
+        router_addr,
         poll_secs
     );
 
@@ -209,7 +286,7 @@ async fn main() -> Result<()> {
         if latest >= from_block {
             let events = fetch_log_requests_in_range(
                 source_provider.clone(),
-                sender_addr,
+                router_addr,
                 from_block,
                 latest,
             )
@@ -265,46 +342,77 @@ async fn main() -> Result<()> {
                     })
                     .await
                 {
-                    Ok((tx_hash, bridge_id)) => {
+                    Ok(dispatch_result) => {
                         let source_tx_dispatch_ms = dispatch_started.elapsed().as_millis();
+                        let fallback_hops = dispatch_result.attempt_count.saturating_sub(1);
                         tracing::info!(
                             request_id,
-                            bridge_id,
+                            bridge_name = %dispatch_result.bridge_name,
+                            bridge_id_hex = %dispatch_result.bridge_id_hex,
+                            attempt_count = dispatch_result.attempt_count,
                             source_tx_dispatch_ms,
                             "source chain dispatch finished"
                         );
 
-                        append_metrics_csv(
-                            "e2e_metrics.csv",
+                        append_metrics_csv_v2(
+                            &metrics_file_path,
                             request_id,
-                            bridge_id,
                             t1_timestamp,
                             pipeline.metadata.benchmark.t2_mpc_ms,
                             pipeline.metadata.benchmark.t3_vdf_ms,
                             source_tx_dispatch_ms,
-                            tx_hash,
+                            &dispatch_result.bridge_name,
+                            &dispatch_result.bridge_id_hex,
+                            &dispatch_result.bridge_name,
+                            dispatch_result.attempt_count,
+                            fallback_hops,
+                            "success",
+                            "",
+                            Some(dispatch_result.tx_hash),
                         )?;
 
                         println!("+--------------------------------------------------+");
                         println!("| E2E RELAY RESULT                                 |");
                         println!("+--------------------------------------------------+");
                         println!("| request_id : {:<35}|", request_id);
-                        println!("| bridge_id  : {:<35}|", bridge_id);
+                        println!("| bridge     : {:<35}|", dispatch_result.bridge_name);
+                        println!("| bridge_hex : {:<35}|", dispatch_result.bridge_id_hex);
+                        println!("| attempts   : {:<35}|", dispatch_result.attempt_count);
                         println!("| t2_mpc_ms  : {:<35}|", pipeline.metadata.benchmark.t2_mpc_ms);
                         println!("| t3_vdf_ms  : {:<35}|", pipeline.metadata.benchmark.t3_vdf_ms);
                         println!("| t4_src_ms  : {:<35}|", source_tx_dispatch_ms);
-                        println!("| tx_hash    : {:<35}|", format!("{tx_hash:?}"));
+                        println!("| tx_hash    : {:<35}|", format!("{:?}", dispatch_result.tx_hash));
                         println!("+--------------------------------------------------+");
                         processed_requests.insert(request_id);
                     }
                     Err(error) => {
                         let source_tx_dispatch_ms = dispatch_started.elapsed().as_millis();
+                        let attempt_count = u8::try_from(router.relayer_count()).unwrap_or(u8::MAX);
+                        let fallback_hops = attempt_count.saturating_sub(1);
                         tracing::warn!(
                             request_id,
+                            attempt_count,
                             source_tx_dispatch_ms,
                             "source chain dispatch failed after retries"
                         );
                         tracing::error!("relay failed for request_id={}: {:?}", request_id, error);
+
+                        append_metrics_csv_v2(
+                            &metrics_file_path,
+                            request_id,
+                            t1_timestamp,
+                            pipeline.metadata.benchmark.t2_mpc_ms,
+                            pipeline.metadata.benchmark.t3_vdf_ms,
+                            source_tx_dispatch_ms,
+                            "",
+                            "",
+                            "NONE",
+                            attempt_count,
+                            fallback_hops,
+                            "failed",
+                            &error.to_string(),
+                            None,
+                        )?;
                     }
                 }
             }

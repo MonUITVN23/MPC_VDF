@@ -8,13 +8,15 @@ use async_trait::async_trait;
 use ethers::abi::{encode, Token};
 use ethers::prelude::*;
 use ethers::types::transaction::eip2718::TypedTransaction;
+use ethers::utils::keccak256;
 use tokio::time::timeout;
 use tracing::{error, info, warn};
 
 abigen!(
-    RandomSender,
+    RandomRouter,
     r#"[
-        function relayVDFPayload(uint256 requestId, bytes y, bytes pi, bytes seedCollective, bytes modulus, bytes blsSignature, uint8 bridgeId) payable
+        function estimateBridgeFee(bytes32 bridgeId, bytes payload) view returns (uint256)
+        function relayVDFPayload(uint256 requestId, bytes y, bytes pi, bytes seedCollective, bytes modulus, bytes blsSignature, bytes32 bridgeId) payable
     ]"#
 );
 
@@ -107,7 +109,7 @@ impl AxelarRelayer {
 #[async_trait]
 impl BridgeRelayer for AxelarRelayer {
     async fn relay_payload(&self, payload: RelayPayload) -> Result<H256> {
-        let sender = RandomSender::new(self.sender_address, self.signer.clone());
+        let router = RandomRouter::new(self.sender_address, self.signer.clone());
 
         let relay_payload_abi = encode(&[
             Token::Uint(payload.request_id.into()),
@@ -204,7 +206,9 @@ impl BridgeRelayer for AxelarRelayer {
             );
         }
 
-        let call = sender
+        let bridge_id = bridge_name_to_id("AXELAR");
+
+        let call = router
             .relay_vdf_payload(
                 payload.request_id.into(),
                 payload.y.into(),
@@ -212,7 +216,7 @@ impl BridgeRelayer for AxelarRelayer {
                 payload.seed_collective.into(),
                 payload.modulus.into(),
                 payload.aggregate_signature.into(),
-                1u8,
+                bridge_id,
             )
             .value(fee_to_pay);
 
@@ -251,36 +255,224 @@ impl BridgeRelayer for AxelarRelayer {
     }
 }
 
-pub struct LayerZeroMockRelayer;
+fn bridge_name_to_id(name: &str) -> [u8; 32] {
+    keccak256(name.as_bytes())
+}
 
-impl LayerZeroMockRelayer {
-    pub fn new() -> Self {
-        Self
+fn bridge_id_hex(name: &str) -> String {
+    format!("0x{}", hex::encode(bridge_name_to_id(name)))
+}
+
+#[derive(Clone)]
+pub struct BridgeMetadata {
+    pub name: String,
+    pub id: [u8; 32],
+}
+
+impl BridgeMetadata {
+    pub fn from_name(name: &str) -> Self {
+        Self {
+            name: name.to_owned(),
+            id: bridge_name_to_id(name),
+        }
+    }
+}
+
+pub struct BridgeDispatchResult {
+    pub tx_hash: H256,
+    pub bridge_name: String,
+    pub bridge_id_hex: String,
+    pub attempt_count: u8,
+}
+
+async fn relay_via_router(
+    signer: Arc<WalletSigner>,
+    router_address: Address,
+    bridge_name: &str,
+    fee_buffer_bps: u32,
+    max_fee_cap_wei: U256,
+    payload: RelayPayload,
+) -> Result<H256> {
+    let router = RandomRouter::new(router_address, signer.clone());
+
+    let relay_payload_abi = encode(&[
+        Token::Uint(payload.request_id.into()),
+        Token::Bytes(payload.y.clone()),
+        Token::Bytes(payload.pi.clone()),
+        Token::Bytes(payload.seed_collective.clone()),
+        Token::Bytes(payload.modulus.clone()),
+        Token::Bytes(payload.aggregate_signature.clone()),
+    ]);
+
+    let bridge_id = bridge_name_to_id(bridge_name);
+    let estimated_fee_result = router
+        .estimate_bridge_fee(bridge_id, relay_payload_abi.into())
+        .call()
+        .await;
+
+    let (fee_to_pay, fallback_used) = match estimated_fee_result {
+        Ok(estimated_fee) => {
+            let buffered_fee = estimated_fee.saturating_mul(U256::from(fee_buffer_bps))
+                / U256::from(10_000u64);
+            (buffered_fee, false)
+        }
+        Err(error) => {
+            warn!(
+                bridge_name,
+                error = %error,
+                fallback_fee_wei = %payload.cross_chain_fee_wei,
+                "estimateBridgeFee failed, using fallback fee"
+            );
+            (payload.cross_chain_fee_wei, true)
+        }
+    };
+
+    info!(
+        bridge_name,
+        fee_to_pay_wei = %fee_to_pay,
+        fallback_used,
+        "bridge fee selected"
+    );
+
+    if fee_to_pay > max_fee_cap_wei {
+        bail!(
+            "fee exceeds cap for {}: estimated={} cap={}",
+            bridge_name,
+            fee_to_pay,
+            max_fee_cap_wei
+        );
+    }
+
+    let call = router
+        .relay_vdf_payload(
+            payload.request_id.into(),
+            payload.y.into(),
+            payload.pi.into(),
+            payload.seed_collective.into(),
+            payload.modulus.into(),
+            payload.aggregate_signature.into(),
+            bridge_id,
+        )
+        .value(fee_to_pay);
+
+    let calldata = call
+        .calldata()
+        .ok_or_else(|| anyhow::anyhow!("failed encoding relayVDFPayload calldata"))?;
+
+    let tx: TypedTransaction = Eip1559TransactionRequest {
+        to: Some(NameOrAddress::Address(router_address)),
+        data: Some(calldata),
+        value: Some(fee_to_pay),
+        gas: Some(U256::from(900_000u64)),
+        max_priority_fee_per_gas: Some(U256::from(40_000_000_000u64)),
+        max_fee_per_gas: Some(U256::from(60_000_000_000u64)),
+        ..Default::default()
+    }
+    .into();
+
+    let pending = signer
+        .send_transaction(tx, None)
+        .await
+        .with_context(|| format!("failed to send relayVDFPayload tx via {bridge_name}"))?;
+    let tx_hash = pending.tx_hash();
+
+    let receipt = pending
+        .await
+        .with_context(|| format!("failed waiting relayVDFPayload receipt via {bridge_name}"))?
+        .ok_or_else(|| {
+            anyhow::anyhow!("relayVDFPayload dropped from mempool via {bridge_name}")
+        })?;
+
+    if receipt.status != Some(U64::from(1u64)) {
+        bail!("relayVDFPayload reverted via {}: tx={tx_hash:?}", bridge_name);
+    }
+
+    Ok(tx_hash)
+}
+
+pub struct LayerZeroRelayer {
+    signer: Arc<WalletSigner>,
+    router_address: Address,
+    fee_buffer_bps: u32,
+    max_fee_cap_wei: U256,
+}
+
+impl LayerZeroRelayer {
+    pub fn new(
+        signer: Arc<WalletSigner>,
+        router_address: Address,
+        fee_buffer_bps: u32,
+        max_fee_cap_wei: U256,
+    ) -> Self {
+        Self {
+            signer,
+            router_address,
+            fee_buffer_bps,
+            max_fee_cap_wei,
+        }
     }
 }
 
 #[async_trait]
-impl BridgeRelayer for LayerZeroMockRelayer {
+impl BridgeRelayer for LayerZeroRelayer {
     async fn relay_payload(&self, payload: RelayPayload) -> Result<H256> {
-        info!(
-            request_id = payload.request_id,
-            bridge_id = 2u8,
-            fee_wei = %payload.cross_chain_fee_wei,
-            "Pretending to route via LayerZero..."
-        );
+        relay_via_router(
+            self.signer.clone(),
+            self.router_address,
+            "LAYERZERO",
+            self.fee_buffer_bps,
+            self.max_fee_cap_wei,
+            payload,
+        )
+        .await
+    }
+}
 
-        let fake = H256::from_low_u64_be((payload.request_id << 8) | 2u64);
-        Ok(fake)
+pub struct WormholeRelayer {
+    signer: Arc<WalletSigner>,
+    router_address: Address,
+    fee_buffer_bps: u32,
+    max_fee_cap_wei: U256,
+}
+
+impl WormholeRelayer {
+    pub fn new(
+        signer: Arc<WalletSigner>,
+        router_address: Address,
+        fee_buffer_bps: u32,
+        max_fee_cap_wei: U256,
+    ) -> Self {
+        Self {
+            signer,
+            router_address,
+            fee_buffer_bps,
+            max_fee_cap_wei,
+        }
+    }
+}
+
+#[async_trait]
+impl BridgeRelayer for WormholeRelayer {
+    async fn relay_payload(&self, payload: RelayPayload) -> Result<H256> {
+        relay_via_router(
+            self.signer.clone(),
+            self.router_address,
+            "WORMHOLE",
+            self.fee_buffer_bps,
+            self.max_fee_cap_wei,
+            payload,
+        )
+        .await
     }
 }
 
 pub struct MultiBridgeRouter {
-    relayers: Vec<(u8, Box<dyn BridgeRelayer + Send + Sync>)>,
+    relayers: Vec<(BridgeMetadata, Box<dyn BridgeRelayer + Send + Sync>)>,
     per_bridge_timeout: Duration,
 }
 
 impl MultiBridgeRouter {
-    pub fn new(relayers: Vec<(u8, Box<dyn BridgeRelayer + Send + Sync>)>) -> Self {
+    pub fn new(relayers: Vec<(BridgeMetadata, Box<dyn BridgeRelayer + Send + Sync>)>) -> Self {
         Self {
             relayers,
             per_bridge_timeout: Duration::from_secs(15),
@@ -288,7 +480,7 @@ impl MultiBridgeRouter {
     }
 
     pub fn with_timeout(
-        relayers: Vec<(u8, Box<dyn BridgeRelayer + Send + Sync>)>,
+        relayers: Vec<(BridgeMetadata, Box<dyn BridgeRelayer + Send + Sync>)>,
         per_bridge_timeout: Duration,
     ) -> Self {
         Self {
@@ -299,18 +491,24 @@ impl MultiBridgeRouter {
 
     pub fn default_with_priority(
         axelar: AxelarRelayer,
-        layerzero_mock: LayerZeroMockRelayer,
+        layerzero: LayerZeroRelayer,
+        wormhole: WormholeRelayer,
     ) -> Self {
         Self::new(vec![
-            (1u8, Box::new(axelar)),
-            (2u8, Box::new(layerzero_mock)),
+            (BridgeMetadata::from_name("AXELAR"), Box::new(axelar)),
+            (BridgeMetadata::from_name("LAYERZERO"), Box::new(layerzero)),
+            (BridgeMetadata::from_name("WORMHOLE"), Box::new(wormhole)),
         ])
     }
 
-    pub async fn execute_with_failover(&self, payload: RelayPayload) -> Result<(H256, u8)> {
+    pub fn relayer_count(&self) -> usize {
+        self.relayers.len()
+    }
+
+    pub async fn execute_with_failover(&self, payload: RelayPayload) -> Result<BridgeDispatchResult> {
         let mut errors = Vec::new();
 
-        for (bridge_id, relayer) in &self.relayers {
+        for (index, (bridge, relayer)) in self.relayers.iter().enumerate() {
             let t4_start = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map(|v| v.as_millis() as u64)
@@ -318,26 +516,38 @@ impl MultiBridgeRouter {
 
             info!(
                 t4_start = t4_start,
-                bridge_id = *bridge_id,
+                bridge_name = %bridge.name,
+                bridge_id_hex = %bridge_id_hex(&bridge.name),
                 fee_wei = %payload.cross_chain_fee_wei,
                 "starting bridge relay attempt"
             );
 
             let mut attempt_payload = payload.clone();
-            attempt_payload.bridge_id = *bridge_id;
+            attempt_payload.bridge_id = u8::try_from(index + 1).unwrap_or(u8::MAX);
 
             match timeout(self.per_bridge_timeout, relayer.relay_payload(attempt_payload)).await {
                 Ok(Ok(tx_hash)) => {
-                    info!(bridge_id = *bridge_id, tx_hash = ?tx_hash, "bridge relay success");
-                    return Ok((tx_hash, *bridge_id));
+                    info!(
+                        bridge_name = %bridge.name,
+                        bridge_id_hex = %bridge_id_hex(&bridge.name),
+                        tx_hash = ?tx_hash,
+                        "bridge relay success"
+                    );
+                    let attempt_count = u8::try_from(index + 1).unwrap_or(u8::MAX);
+                    return Ok(BridgeDispatchResult {
+                        tx_hash,
+                        bridge_name: bridge.name.clone(),
+                        bridge_id_hex: bridge_id_hex(&bridge.name),
+                        attempt_count,
+                    });
                 }
                 Ok(Err(err)) => {
-                    warn!(bridge_id = *bridge_id, error = %err, "bridge relay failed, trying next bridge");
-                    errors.push(format!("bridge_id={bridge_id}: {err}"));
+                    warn!(bridge_name = %bridge.name, error = %err, "bridge relay failed, trying next bridge");
+                    errors.push(format!("bridge_name={}: {err}", bridge.name));
                 }
                 Err(_) => {
-                    warn!(bridge_id = *bridge_id, "bridge relay timeout, trying next bridge");
-                    errors.push(format!("bridge_id={bridge_id}: timeout"));
+                    warn!(bridge_name = %bridge.name, "bridge relay timeout, trying next bridge");
+                    errors.push(format!("bridge_name={}: timeout", bridge.name));
                 }
             }
         }

@@ -10,7 +10,7 @@ const envCandidates = [
 const envPath = envCandidates.find((p) => fs.existsSync(p));
 dotenv.config(envPath ? { path: envPath } : undefined);
 
-const RANDOM_SENDER_ABI = [
+const RANDOM_ROUTER_ABI = [
 	"function requestRandomness(uint256 userSeed) external returns (uint256 requestId)",
 	"event LogRequest(uint256 indexed requestId, uint256 userSeed, uint256 timestamp)",
 ];
@@ -89,7 +89,7 @@ async function sendRequestWithRetry(
 async function main() {
 	const sepoliaRpcUrl = envRequired("SEPOLIA_RPC_URL");
 	const privateKey = envRequired("PRIVATE_KEY");
-	const senderAddress = envRequired("RANDOM_SENDER_ADDRESS");
+	const routerAddress = process.env.RANDOM_ROUTER_ADDRESS || envRequired("RANDOM_SENDER_ADDRESS");
 
 	const intervalSeconds = parsePositiveInt("REQUEST_INTERVAL_SECONDS", 15);
 	const maxRetries = parsePositiveInt("REQUEST_MAX_RETRIES", 5);
@@ -98,16 +98,16 @@ async function main() {
 
 	const provider = new ethers.JsonRpcProvider(sepoliaRpcUrl);
 	const wallet = new ethers.Wallet(privateKey, provider);
-	const sender = new ethers.Contract(senderAddress, RANDOM_SENDER_ABI, wallet);
+	const router = new ethers.Contract(routerAddress, RANDOM_ROUTER_ABI, wallet);
 
 	let sentCount = 0;
 	console.log(
-		`[request-cronjob] start interval=${intervalSeconds}s retries=${maxRetries} sender=${senderAddress}`,
+		`[request-cronjob] start interval=${intervalSeconds}s retries=${maxRetries} router=${routerAddress}`,
 	);
 
 	while (true) {
 		try {
-			const out = await sendRequestWithRetry(sender, maxRetries, retryDelaySeconds * 1000);
+			const out = await sendRequestWithRetry(router, maxRetries, retryDelaySeconds * 1000);
 			sentCount += 1;
 
 			const requestLabel = out.requestId !== undefined ? out.requestId.toString() : `unknown-${sentCount}`;

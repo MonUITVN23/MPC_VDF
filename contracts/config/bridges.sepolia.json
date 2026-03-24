@@ -1,0 +1,77 @@
+{
+  "networkName": "sepolia",
+  "destinationChain": "polygon-sepolia",
+  "destinationAddressEnv": "RANDOM_RECEIVER_ADDRESS",
+  "destinationEvmChainIdEnv": "DEST_CHAIN_ID",
+  "destinationEvmChainIdDefault": "80002",
+  "protocolMappings": {
+    "layerZeroEidByEvmChainId": {
+      "11155111": 40161,
+      "80002": 40267
+    },
+    "wormholeChainByEvmChainId": {
+      "11155111": 10002,
+      "80002": 10007
+    }
+  },
+  "bridges": [
+    {
+      "name": "AXELAR",
+      "kind": "axelar",
+      "enabled": true,
+      "axelarGateway": {
+        "env": "AXELAR_GATEWAY_SEPOLIA",
+        "default": "0xe432150cce91c13a887f7D836923d5597adD8E31",
+        "required": true
+      },
+      "axelarGasService": {
+        "env": "AXELAR_GAS_SERVICE_SEPOLIA",
+        "default": "0xbE406F0189A0B4cf3A05C286473D23791Dd44Cc6",
+        "required": true
+      },
+      "axelarFeeHintWei": {
+        "env": "AXELAR_FEE_HINT_WEI",
+        "default": "200000000000000"
+      }
+    },
+    {
+      "name": "LAYERZERO",
+      "kind": "layerzero",
+      "enabled": true,
+      "layerZeroEndpoint": {
+        "env": "LAYERZERO_ENDPOINT_V2_SEPOLIA",
+        "default": "0x6EDCE65403992e310A62460808c4b910D972f10f",
+        "required": true
+      },
+      "layerZeroDstEid": {
+        "env": "LZ_DST_EID"
+      },
+      "layerZeroOptionsHex": {
+        "env": "LZ_OPTIONS_HEX",
+        "default": "0x"
+      }
+    },
+    {
+      "name": "WORMHOLE",
+      "kind": "wormhole",
+      "enabled": true,
+      "wormholeRelayer": {
+        "env": "WORMHOLE_RELAYER_SEPOLIA",
+        "required": true
+      },
+      "wormholeTargetChain": {
+        "env": "WORMHOLE_TARGET_CHAIN"
+      },
+      "wormholeGasLimit": {
+        "env": "WORMHOLE_GAS_LIMIT",
+        "default": "500000"
+      },
+      "wormholeRefundChain": {
+        "env": "WORMHOLE_REFUND_CHAIN"
+      },
+      "wormholeRefundAddress": {
+        "env": "WORMHOLE_REFUND_ADDRESS"
+      }
+    }
+  ]
+}

@@ -4,12 +4,12 @@
 
 Script: `request_cronjob.ts`
 
-Mục tiêu: gửi định kỳ `requestRandomness(userSeed)` để Off-chain router xử lý và ghi `e2e_metrics.csv`.
+Mục tiêu: gửi định kỳ `requestRandomness(userSeed)` để Off-chain router xử lý và ghi `e2e_metrics_v2.csv`.
 
 Biến môi trường chính:
 - `SEPOLIA_RPC_URL`
 - `PRIVATE_KEY`
-- `RANDOM_SENDER_ADDRESS`
+- `RANDOM_ROUTER_ADDRESS` (fallback compatibility: `RANDOM_SENDER_ADDRESS`)
 - `REQUEST_INTERVAL_SECONDS` (mặc định `15`)
 - `REQUEST_MAX_RETRIES` (mặc định `5`)
 - `REQUEST_RETRY_DELAY_SECS` (mặc định `8`)
@@ -94,7 +94,7 @@ Script: `postprocess_metrics.ts`
 
 Đọc đồng thời:
 - `off-chain/crypto_benchmarks.csv`
-- `off-chain/e2e_metrics.csv`
+- `off-chain/e2e_metrics_v2.csv`
 
 Sinh ra:
 - `off-chain/crypto_summary.json`

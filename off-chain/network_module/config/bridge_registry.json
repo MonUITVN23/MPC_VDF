@@ -1,0 +1,9 @@
+{
+  "bridges": [
+    { "name": "AXELAR", "enabled": true },
+    { "name": "LAYERZERO", "enabled": true },
+    { "name": "WORMHOLE", "enabled": true },
+    { "name": "DUMMY", "enabled": false }
+  ],
+  "priority": ["AXELAR", "LAYERZERO", "WORMHOLE"]
+}

@@ -22,8 +22,8 @@ type E2ERow = {
 	status: "relayed" | "pending";
 };
 
-const SENDER_ABI = [
-	"event LogRequest(uint256 indexed requestId, address indexed requester, bytes seedUser, uint256 timestamp)",
+const ROUTER_ABI = [
+	"event LogRequest(uint256 indexed requestId, uint256 userSeed, uint256 timestamp)",
 ];
 
 const RECEIVER_ABI = [
@@ -195,7 +195,7 @@ async function main() {
 	const sepoliaRpc = requiredEnv("SEPOLIA_RPC_URL");
 	const destinationRpc = process.env.DEST_RPC_URL || requiredEnv("AMOY_RPC_URL");
 	const expectedDestinationChainId = Number(process.env.DEST_CHAIN_ID || "80002");
-	const senderAddress = requiredEnv("RANDOM_SENDER_ADDRESS");
+	const routerAddress = process.env.RANDOM_ROUTER_ADDRESS || requiredEnv("RANDOM_SENDER_ADDRESS");
 	const receiverAddress = requiredEnv("RANDOM_RECEIVER_ADDRESS");
 
 	const lookback = Number(process.env.E2E_REPORT_LOOKBACK_BLOCKS || "150");
@@ -204,7 +204,7 @@ async function main() {
 	const srcProvider = new ethers.JsonRpcProvider(sepoliaRpc);
 	const dstProvider = new ethers.JsonRpcProvider(destinationRpc);
 
-	const sender = new ethers.Contract(senderAddress, SENDER_ABI, srcProvider);
+	const router = new ethers.Contract(routerAddress, ROUTER_ABI, srcProvider);
 	const receiver = new ethers.Contract(receiverAddress, RECEIVER_ABI, dstProvider);
 
 	const srcLatest = Number(await srcProvider.getBlockNumber());
@@ -219,7 +219,7 @@ async function main() {
 	const dstFrom = Math.max(0, dstLatest - lookback);
 
 	const [srcLogs, dstLogs] = await Promise.all([
-		queryEventsChunked(sender, sender.filters.LogRequest(), srcFrom, srcLatest, maxRange),
+		queryEventsChunked(router, router.filters.LogRequest(), srcFrom, srcLatest, maxRange),
 		queryEventsChunked(
 			receiver,
 			receiver.filters.OptimisticResultSubmitted(),

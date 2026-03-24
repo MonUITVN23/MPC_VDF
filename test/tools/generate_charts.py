@@ -14,7 +14,12 @@ import seaborn as sns
 REQUIRED_CRYPTO_COLUMNS = {"T_value", "prover_time_ms", "verify_gas_used"}
 REQUIRED_E2E_COLUMNS = {
     "request_id",
-    "bridge_id",
+    "bridge_name",
+    "bridge_id_hex",
+    "selected_bridge",
+    "attempt_count",
+    "fallback_hops",
+    "dispatch_status",
     "t2_mpc_ms",
     "t3_vdf_ms",
     "t4_dispatch_ms",
@@ -42,6 +47,22 @@ def prepare_numeric(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
     for col in columns:
         out[col] = pd.to_numeric(out[col], errors="coerce")
     out = out.dropna(subset=columns)
+    return out
+
+
+def normalize_bridge_column(e2e_df: pd.DataFrame) -> pd.DataFrame:
+    out = e2e_df.copy()
+    if "selected_bridge" in out.columns:
+        out["bridge"] = out["selected_bridge"].fillna("")
+    else:
+        out["bridge"] = ""
+
+    if "bridge_name" in out.columns:
+        missing = out["bridge"].astype(str).str.strip() == ""
+        out.loc[missing, "bridge"] = out.loc[missing, "bridge_name"]
+
+    out["bridge"] = out["bridge"].fillna("UNKNOWN").astype(str).str.strip()
+    out.loc[out["bridge"] == "", "bridge"] = "UNKNOWN"
     return out
 
 
@@ -107,24 +128,20 @@ def plot_vdf_computation_cost(crypto_df: pd.DataFrame, out_dir: Path) -> Path:
 
 
 def plot_e2e_stacked_breakdown(e2e_df: pd.DataFrame, out_dir: Path) -> Path:
+    success_df = e2e_df[e2e_df["dispatch_status"] == "success"]
+
     grouped = (
-        e2e_df.groupby("bridge_id", as_index=False)
+        success_df.groupby("bridge", as_index=False)
         .agg(
             t2_mpc_ms=("t2_mpc_ms", "mean"),
             t3_vdf_ms=("t3_vdf_ms", "mean"),
             t4_dispatch_ms=("t4_dispatch_ms", "mean"),
         )
-        .sort_values("bridge_id")
+        .sort_values("bridge")
     )
 
     if grouped.empty:
         raise ValueError("No valid E2E rows available for chart 2")
-
-    bridge_label = {
-        1: "Normal (Bridge 1 - Axelar)",
-        2: "Failover (Bridge 2 - LayerZero)",
-    }
-    grouped["label"] = grouped["bridge_id"].map(bridge_label).fillna(grouped["bridge_id"].astype(str))
 
     fig, ax = plt.subplots(figsize=(10, 6))
 
@@ -142,9 +159,9 @@ def plot_e2e_stacked_breakdown(e2e_df: pd.DataFrame, out_dir: Path) -> Path:
         ax.text(idx, total + 40, f"{total:.1f} ms", ha="center", va="bottom", fontsize=10)
 
     ax.set_xticks(list(x))
-    ax.set_xticklabels(grouped["label"], rotation=10)
+    ax.set_xticklabels(grouped["bridge"], rotation=10)
     ax.set_ylabel("Average Latency (ms)")
-    ax.set_title("End-to-End Latency Decomposition (Average)")
+    ax.set_title("End-to-End Latency Decomposition by Bridge (Success Only)")
     ax.legend(loc="upper right")
 
     fig.tight_layout()
@@ -154,40 +171,44 @@ def plot_e2e_stacked_breakdown(e2e_df: pd.DataFrame, out_dir: Path) -> Path:
     return out_path
 
 
-def plot_failover_timeline(e2e_df: pd.DataFrame, out_dir: Path, failover_marker: int) -> Path:
+def plot_failover_timeline(e2e_df: pd.DataFrame, out_dir: Path, failover_marker: int | None) -> Path:
     fig, ax = plt.subplots(figsize=(11, 6))
 
-    normal = e2e_df[e2e_df["bridge_id"] == 1]
-    failover = e2e_df[e2e_df["bridge_id"] == 2]
+    plot_df = e2e_df[e2e_df["dispatch_status"] == "success"].sort_values("request_id")
+    bridges = list(plot_df["bridge"].dropna().unique())
+    palette = sns.color_palette("tab10", n_colors=max(len(bridges), 1))
 
-    ax.scatter(
-        normal["request_id"],
-        normal["t4_dispatch_ms"],
-        color="#1f77b4",
-        label="Bridge 1 (Axelar)",
-        alpha=0.85,
-        s=36,
-    )
-    ax.scatter(
-        failover["request_id"],
-        failover["t4_dispatch_ms"],
-        color="#d62728",
-        label="Bridge 2 (LayerZero Failover)",
-        alpha=0.9,
-        s=36,
-    )
+    for idx, bridge in enumerate(bridges):
+        subset = plot_df[plot_df["bridge"] == bridge]
+        if subset.empty:
+            continue
+        ax.scatter(
+            subset["request_id"],
+            subset["t4_dispatch_ms"],
+            color=palette[idx],
+            label=bridge,
+            alpha=0.88,
+            s=36,
+        )
 
-    ax.axvline(
-        failover_marker,
-        linestyle="--",
-        color="black",
-        linewidth=1.5,
-        label=f"Failover Trigger ~ Request {failover_marker}",
-    )
+    marker = failover_marker
+    if marker is None:
+        fallback_rows = e2e_df[e2e_df["fallback_hops"] > 0]
+        if not fallback_rows.empty:
+            marker = int(fallback_rows["request_id"].min())
+
+    if marker is not None:
+        ax.axvline(
+            marker,
+            linestyle="--",
+            color="black",
+            linewidth=1.5,
+            label=f"Failover Trigger ~ Request {marker}",
+        )
 
     ax.set_xlabel("Request ID")
     ax.set_ylabel("T_Network_Dispatch (t4) [ms]")
-    ax.set_title("Failover Timeline: Dispatch Latency by Request")
+    ax.set_title("Failover Timeline: Dispatch Latency by Request (Success Only)")
     ax.legend(loc="best")
 
     fig.tight_layout()
@@ -197,20 +218,64 @@ def plot_failover_timeline(e2e_df: pd.DataFrame, out_dir: Path, failover_marker:
     return out_path
 
 
-def print_bridge1_t4_stats(e2e_df: pd.DataFrame) -> None:
-    bridge1 = e2e_df[e2e_df["bridge_id"] == 1]["t4_dispatch_ms"].dropna()
-    if bridge1.empty:
-        print("[Stats] Bridge 1 has no t4_dispatch_ms data")
-        return
+def plot_fallback_ratio(e2e_df: pd.DataFrame, out_dir: Path) -> Path:
+    grouped = (
+        e2e_df.groupby("bridge", as_index=False)
+        .agg(
+            total=("request_id", "count"),
+            fallback_count=("fallback_hops", lambda s: int((s > 0).sum())),
+        )
+        .sort_values("bridge")
+    )
 
-    avg_v = bridge1.mean()
-    p50_v = bridge1.quantile(0.50)
-    p95_v = bridge1.quantile(0.95)
+    if grouped.empty:
+        raise ValueError("No valid E2E rows available for fallback ratio chart")
 
-    print("\n=== Bridge 1 (Axelar) T4 Statistics ===")
-    print(f"Avg t4_dispatch_ms: {avg_v:.3f}")
-    print(f"p50 t4_dispatch_ms: {p50_v:.3f}")
-    print(f"p95 t4_dispatch_ms: {p95_v:.3f}")
+    grouped["fallback_ratio_pct"] = grouped["fallback_count"] / grouped["total"] * 100.0
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    bars = ax.bar(grouped["bridge"], grouped["fallback_ratio_pct"], color="#8B5CF6", alpha=0.9)
+
+    for bar, ratio, fallback_count, total in zip(
+        bars,
+        grouped["fallback_ratio_pct"],
+        grouped["fallback_count"],
+        grouped["total"],
+    ):
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 0.8,
+            f"{ratio:.1f}% ({fallback_count}/{total})",
+            ha="center",
+            va="bottom",
+            fontsize=9,
+        )
+
+    ax.set_ylim(0, max(100.0, float(grouped["fallback_ratio_pct"].max()) + 8.0))
+    ax.set_ylabel("Fallback Ratio (%)")
+    ax.set_xlabel("Selected Bridge")
+    ax.set_title("Fallback Ratio by Selected Bridge")
+
+    fig.tight_layout()
+    out_path = out_dir / "chart4_fallback_ratio.png"
+    fig.savefig(out_path, dpi=300)
+    plt.close(fig)
+    return out_path
+
+
+def print_bridge_t4_stats(e2e_df: pd.DataFrame) -> None:
+    print("\n=== Bridge-wise T4 Statistics (Success Only) ===")
+    success_df = e2e_df[e2e_df["dispatch_status"] == "success"]
+    for bridge, subset in success_df.groupby("bridge"):
+        t4 = subset["t4_dispatch_ms"].dropna()
+        if t4.empty:
+            print(f"{bridge}: no t4_dispatch_ms data")
+            continue
+
+        avg_v = t4.mean()
+        p50_v = t4.quantile(0.50)
+        p95_v = t4.quantile(0.95)
+        print(f"{bridge} | N={len(t4)} | Avg={avg_v:.3f} | P50={p50_v:.3f} | P95={p95_v:.3f}")
 
 
 def main() -> None:
@@ -224,8 +289,8 @@ def main() -> None:
     parser.add_argument(
         "--e2e-csv",
         type=Path,
-        default=Path("/home/xuananh/mpc-vdf/off-chain/e2e_metrics.csv"),
-        help="Path to E2E metrics CSV",
+        default=Path("/home/xuananh/mpc-vdf/off-chain/e2e_metrics_v2.csv"),
+        help="Path to E2E metrics CSV (v2 schema)",
     )
     parser.add_argument(
         "--out-dir",
@@ -236,8 +301,8 @@ def main() -> None:
     parser.add_argument(
         "--failover-marker",
         type=int,
-        default=20,
-        help="Request ID position to draw failover trigger vertical line",
+        default=None,
+        help="Request ID position to draw failover trigger vertical line (default: auto from first fallback)",
     )
     args = parser.parse_args()
 
@@ -247,12 +312,20 @@ def main() -> None:
     e2e_df = load_csv(args.e2e_csv)
 
     validate_columns(crypto_df, REQUIRED_CRYPTO_COLUMNS, "crypto_benchmarks.csv")
-    validate_columns(e2e_df, REQUIRED_E2E_COLUMNS, "e2e_metrics.csv")
+    validate_columns(e2e_df, REQUIRED_E2E_COLUMNS, "e2e_metrics_v2.csv")
 
     crypto_df = prepare_numeric(crypto_df, ["T_value", "prover_time_ms", "verify_gas_used"])
+    e2e_df = normalize_bridge_column(e2e_df)
     e2e_df = prepare_numeric(
         e2e_df,
-        ["request_id", "bridge_id", "t2_mpc_ms", "t3_vdf_ms", "t4_dispatch_ms"],
+        [
+            "request_id",
+            "t2_mpc_ms",
+            "t3_vdf_ms",
+            "t4_dispatch_ms",
+            "attempt_count",
+            "fallback_hops",
+        ],
     )
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -260,12 +333,14 @@ def main() -> None:
     chart1 = plot_vdf_computation_cost(crypto_df, args.out_dir)
     chart2 = plot_e2e_stacked_breakdown(e2e_df, args.out_dir)
     chart3 = plot_failover_timeline(e2e_df, args.out_dir, args.failover_marker)
+    chart4 = plot_fallback_ratio(e2e_df, args.out_dir)
 
     print(f"Saved: {chart1}")
     print(f"Saved: {chart2}")
     print(f"Saved: {chart3}")
+    print(f"Saved: {chart4}")
 
-    print_bridge1_t4_stats(e2e_df)
+    print_bridge_t4_stats(e2e_df)
 
 
 if __name__ == "__main__":
