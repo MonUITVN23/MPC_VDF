@@ -9,7 +9,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use crypto_engine::run_randomness_pipeline_with_seed;
+use crypto_engine::run_randomness_pipeline_full;
 use dotenvy::dotenv;
 use ethers::prelude::*;
 
@@ -112,6 +112,7 @@ fn append_metrics_csv_v2(
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    println!("DEBUG: Starting network_module main function");
     dotenv().ok();
     tracing_subscriber::fmt::init();
 
@@ -309,7 +310,7 @@ async fn main() -> Result<()> {
                 let session_id = format!("sepolia-req-{}", request_id);
                 let mut seed_user = [0u8; 32];
                 ev.user_seed.to_big_endian(&mut seed_user);
-                let pipeline = run_randomness_pipeline_with_seed(&session_id, &seed_user, vdf_t)
+                let pipeline = run_randomness_pipeline_full(&session_id, &seed_user, vdf_t, request_id, &vdf_modulus)
                     .with_context(|| format!("pipeline failed for request_id={request_id}"))?;
 
                 let y_hex = format!("0x{}", hex::encode(&pipeline.payload.y));
@@ -339,9 +340,8 @@ async fn main() -> Result<()> {
                         modulus: vdf_modulus.clone(),
                         aggregate_signature: pipeline.payload.aggregate_signature,
                         cross_chain_fee_wei,
-                        // ZK proof fields (empty = legacy non-ZK mode)
-                        zk_proof_data: Vec::new(),
-                        zk_public_signals: [U256::zero(); 7],
+                        zk_proof_data: pipeline.payload.zk_proof_data,
+                        zk_public_signals: pipeline.payload.zk_public_signals,
                     })
                     .await
                 {

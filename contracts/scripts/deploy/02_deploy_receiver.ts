@@ -42,6 +42,21 @@ async function main() {
   const address = await contract.getAddress();
   const deployTx = contract.deploymentTransaction();
 
+  console.log("Deploying Groth16Verifier...");
+  const VerifierFactory = await ethers.getContractFactory("Groth16Verifier");
+  const verifier = await VerifierFactory.deploy();
+  await verifier.waitForDeployment();
+  const verifierAddress = await verifier.getAddress();
+  console.log(`Groth16Verifier deployed to: ${verifierAddress}`);
+
+  console.log("Configuring RandomReceiver...");
+  const setVerifierTx = await (contract as any).setZkVerifier(verifierAddress);
+  await setVerifierTx.wait();
+  
+  const setModeTx = await (contract as any).setZkProofMode(true);
+  await setModeTx.wait();
+
+  // We keep the old BLS keys for fallback/compatibility if needed
   const setPkTx = await (contract as any).setAggregatePublicKey(BN254_G2_X, BN254_G2_Y);
   await setPkTx.wait();
 

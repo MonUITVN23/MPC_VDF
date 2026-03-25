@@ -235,7 +235,7 @@ impl BridgeRelayer for AxelarRelayer {
             to: Some(NameOrAddress::Address(self.sender_address)),
             data: Some(calldata),
             value: Some(fee_to_pay),
-            gas: Some(U256::from(900_000u64)),
+            gas: Some(U256::from(1_500_000u64)),
             max_priority_fee_per_gas: Some(U256::from(40_000_000_000u64)),
             max_fee_per_gas: Some(U256::from(60_000_000_000u64)),
             ..Default::default()
@@ -319,9 +319,21 @@ async fn relay_via_router(
 
     let (fee_to_pay, fallback_used) = match estimated_fee_result {
         Ok(estimated_fee) => {
-            let buffered_fee = estimated_fee.saturating_mul(U256::from(fee_buffer_bps))
-                / U256::from(10_000u64);
-            (buffered_fee, false)
+            // Sentinel: if adapter returns type(uint256).max, route is not configured
+            let max_sentinel = U256::from_dec_str(
+                "115792089237316195423570985008687907853269984665640564039457584007913129639935"
+            ).unwrap_or(U256::MAX);
+            if estimated_fee >= max_sentinel / U256::from(2u64) {
+                warn!(
+                    bridge_name,
+                    "estimateBridgeFee returned MAX_UINT (route not configured), using fallback fee"
+                );
+                (payload.cross_chain_fee_wei, true)
+            } else {
+                let buffered_fee = estimated_fee.saturating_mul(U256::from(fee_buffer_bps))
+                    / U256::from(10_000u64);
+                (buffered_fee, false)
+            }
         }
         Err(error) => {
             warn!(

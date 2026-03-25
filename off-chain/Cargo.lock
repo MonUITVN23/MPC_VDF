@@ -609,6 +609,7 @@ dependencies = [
  "bls-signatures",
  "blstrs",
  "classgroup",
+ "ethers",
  "group",
  "hex",
  "rand 0.8.5",

@@ -189,7 +189,7 @@ module.exports = { prepareCircuitInput, splitHash256, sha256, generateMockInput 
 
 // Run if called directly
 if (require.main === module) {
-  main().catch((e) => {
+  main().then(() => process.exit(0)).catch((e) => {
     console.error("Proving failed:", e);
     process.exit(1);
   });
