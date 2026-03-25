@@ -17,6 +17,8 @@ async fn main() -> Result<()> {
         modulus: vec![0x05],
         aggregate_signature: vec![0x06],
         cross_chain_fee_wei: U256::from(123_456u64),
+        zk_proof_data: Vec::new(),
+        zk_public_signals: [U256::zero(); 7],
     };
 
     let tx_hash = relayer.relay_payload(payload).await?;

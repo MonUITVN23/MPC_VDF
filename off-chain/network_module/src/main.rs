@@ -339,6 +339,9 @@ async fn main() -> Result<()> {
                         modulus: vdf_modulus.clone(),
                         aggregate_signature: pipeline.payload.aggregate_signature,
                         cross_chain_fee_wei,
+                        // ZK proof fields (empty = legacy non-ZK mode)
+                        zk_proof_data: Vec::new(),
+                        zk_public_signals: [U256::zero(); 7],
                     })
                     .await
                 {

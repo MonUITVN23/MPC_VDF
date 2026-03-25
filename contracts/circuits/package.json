@@ -1,0 +1,16 @@
+{
+  "name": "mpc-vdf-zk-circuits",
+  "version": "1.0.0",
+  "description": "ZK-SNARK circuits for BLS12-381 signature commitment verification",
+  "private": true,
+  "dependencies": {
+    "circomlib": "^2.0.5",
+    "snarkjs": "^0.7.5"
+  },
+  "scripts": {
+    "setup": "bash scripts/setup.sh",
+    "prove": "node scripts/prove.js",
+    "verify": "node scripts/verify.js",
+    "verifier:sol": "snarkjs zkey export solidityverifier build/bls_commitment.zkey ../src/Groth16Verifier.sol"
+  }
+}

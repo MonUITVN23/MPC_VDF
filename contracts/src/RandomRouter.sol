@@ -101,6 +101,8 @@ contract RandomRouter {
         bytes calldata seedCollective,
         bytes calldata modulus,
         bytes calldata blsSignature,
+        bytes calldata zkProofData,
+        uint256[7] calldata zkPublicSignals,
         bytes32 bridgeId
     ) external payable nonReentrant {
         if (bridgeId == bytes32(0)) revert InvalidBridgeId();
@@ -111,7 +113,9 @@ contract RandomRouter {
             pi,
             seedCollective,
             modulus,
-            blsSignature
+            blsSignature,
+            zkProofData,
+            zkPublicSignals
         );
 
         IBridgeAdapter adapter = bridgeAdapters[bridgeId];
@@ -127,17 +131,23 @@ contract RandomRouter {
         bytes calldata pi,
         bytes calldata seedCollective,
         bytes calldata modulus,
-        bytes calldata blsSignature
+        bytes calldata blsSignature,
+        bytes calldata zkProofData,
+        uint256[7] calldata zkPublicSignals
     ) internal view returns (bytes memory payload) {
         if (requestId == 0 || requestId >= nextRequestId) revert InvalidRequestId();
         if (
             y.length == 0 ||
             pi.length == 0 ||
             seedCollective.length == 0 ||
-            modulus.length == 0 ||
-            blsSignature.length == 0
+            modulus.length == 0
         ) revert EmptyPayloadPart();
+        // blsSignature can be empty when using ZK mode
+        // zkProofData can be empty when using legacy BLS mode
 
-        payload = abi.encode(requestId, y, pi, seedCollective, modulus, blsSignature);
+        payload = abi.encode(
+            requestId, y, pi, seedCollective, modulus,
+            blsSignature, zkProofData, zkPublicSignals
+        );
     }
 }

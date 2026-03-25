@@ -16,7 +16,7 @@ abigen!(
     RandomRouter,
     r#"[
         function estimateBridgeFee(bytes32 bridgeId, bytes payload) view returns (uint256)
-        function relayVDFPayload(uint256 requestId, bytes y, bytes pi, bytes seedCollective, bytes modulus, bytes blsSignature, bytes32 bridgeId) payable
+        function relayVDFPayload(uint256 requestId, bytes y, bytes pi, bytes seedCollective, bytes modulus, bytes blsSignature, bytes zkProofData, uint256[7] zkPublicSignals, bytes32 bridgeId) payable
     ]"#
 );
 
@@ -39,6 +39,11 @@ pub struct RelayPayload {
     pub modulus: Vec<u8>,
     pub aggregate_signature: Vec<u8>,
     pub cross_chain_fee_wei: U256,
+    /// Groth16 proof data: abi.encode(pA[2], pB[2][2], pC[2]). Empty if not using ZK mode.
+    pub zk_proof_data: Vec<u8>,
+    /// ZK public signals [commitment_hi, commitment_lo, pk_hash_hi, pk_hash_lo,
+    ///                     payload_hash_hi, payload_hash_lo, request_id]
+    pub zk_public_signals: [U256; 7],
 }
 
 #[async_trait]
@@ -216,6 +221,8 @@ impl BridgeRelayer for AxelarRelayer {
                 payload.seed_collective.into(),
                 payload.modulus.into(),
                 payload.aggregate_signature.into(),
+                payload.zk_proof_data.into(),
+                payload.zk_public_signals,
                 bridge_id,
             )
             .value(fee_to_pay);
@@ -351,6 +358,8 @@ async fn relay_via_router(
             payload.seed_collective.into(),
             payload.modulus.into(),
             payload.aggregate_signature.into(),
+            payload.zk_proof_data.into(),
+            payload.zk_public_signals,
             bridge_id,
         )
         .value(fee_to_pay);

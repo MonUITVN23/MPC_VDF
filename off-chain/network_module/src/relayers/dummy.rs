@@ -50,6 +50,8 @@ mod tests {
             modulus: vec![7],
             aggregate_signature: vec![8],
             cross_chain_fee_wei: U256::from(123u64),
+            zk_proof_data: Vec::new(),
+            zk_public_signals: [U256::zero(); 7],
         };
 
         let first = relayer
