@@ -7,3 +7,10 @@ cache/
 typechain-types/
 *.log
 docs/gas-report.txt
+
+# Circuit build artifacts
+contracts/circuits/build/
+contracts/circuits/ptau/
+*.zkey
+*.sym
+*.ptau

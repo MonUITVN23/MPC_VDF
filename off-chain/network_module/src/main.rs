@@ -285,13 +285,20 @@ async fn main() -> Result<()> {
         }
 
         if latest >= from_block {
-            let events = fetch_log_requests_in_range(
+            let events = match fetch_log_requests_in_range(
                 source_provider.clone(),
                 router_addr,
                 from_block,
                 latest,
             )
-            .await?;
+            .await {
+                Ok(evts) => evts,
+                Err(e) => {
+                    tracing::error!("Lỗi khi lấy log từ RPC: {:?}, sẽ thử lại...", e);
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                    continue;
+                }
+            };
 
             tracing::info!(
                 "Scan LogRequest xong: from_block={}, to_block={}, events_found={}",
@@ -420,7 +427,8 @@ async fn main() -> Result<()> {
                 }
             }
 
-            from_block = latest.saturating_add(1);
+            // Dịch lui 1 block (overlap) để chống tình trạng lag Indexer của RPC node
+            from_block = latest.saturating_sub(1);
         }
 
         tokio::time::sleep(Duration::from_secs(poll_secs)).await;

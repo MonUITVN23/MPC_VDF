@@ -563,8 +563,8 @@ impl MultiBridgeRouter {
                     });
                 }
                 Ok(Err(err)) => {
-                    warn!(bridge_name = %bridge.name, error = %err, "bridge relay failed, trying next bridge");
-                    errors.push(format!("bridge_name={}: {err}", bridge.name));
+                    warn!(bridge_name = %bridge.name, error = ?err, "bridge relay failed, trying next bridge");
+                    errors.push(format!("bridge_name={}: {:?}", bridge.name, err));
                 }
                 Err(_) => {
                     warn!(bridge_name = %bridge.name, "bridge relay timeout, trying next bridge");
