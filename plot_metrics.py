@@ -6,7 +6,12 @@ import os
 
 # Cấu hình file
 csv_file = 'off-chain/e2e_metrics_with_gas.csv'
-out_dir = '/home/xuananh/.gemini/antigravity/brain/1df1a963-4f93-460b-97a1-990c283550a5'
+out_dir = 'test/results/charts'
+
+
+# Đảm bảo thư mục output tồn tại
+if not os.path.exists(out_dir):
+    os.makedirs(out_dir, exist_ok=True)
 
 if not os.path.exists(csv_file):
     print(f"Error: {csv_file} not found!")
@@ -18,11 +23,11 @@ df = pd.read_csv(csv_file)
 # Lọc dữ liệu thành công
 success_df = df[df['dispatch_status'] == 'success'].copy()
 
-# Chuyển đổi ms thành giây cho dễ nhìn
-success_df['t2_mpc_sec'] = success_df['t2_mpc_ms'] / 1000
+
+# Chuyển đổi ms thành giây cho dễ nhìn (chỉ giữ VDF và Dispatch)
 success_df['t3_vdf_sec'] = success_df['t3_vdf_ms'] / 1000
 success_df['t4_dispatch_sec'] = success_df['t4_dispatch_ms'] / 1000
-success_df['total_latency_sec'] = success_df['t2_mpc_sec'] + success_df['t3_vdf_sec'] + success_df['t4_dispatch_sec']
+success_df['total_latency_sec'] = success_df['t3_vdf_sec'] + success_df['t4_dispatch_sec']
 
 # Bảng màu cho bridge
 bridge_colors = {'AXELAR': '#2E86C1', 'LAYERZERO': '#E67E22', 'WORMHOLE': '#27AE60'}
@@ -54,21 +59,21 @@ plt.savefig(f"{out_dir}/latency_boxplot.png", dpi=300)
 plt.close()
 
 # =========================================================================
-# 2. Biểu đồ Bar chart: Phân rã độ trễ (MPC vs VDF vs Network)
+# 2. Biểu đồ Bar chart: Phân rã độ trễ (VDF vs Network)
 # =========================================================================
-# Tính trung bình các phase cho mỗi cầu
-avg_latency = success_df.groupby('selected_bridge')[['t2_mpc_sec', 't3_vdf_sec', 't4_dispatch_sec']].mean()
+# Tính trung bình các phase cho mỗi cầu (chỉ giữ VDF và Dispatch)
+avg_latency = success_df.groupby('selected_bridge')[['t3_vdf_sec', 't4_dispatch_sec']].mean()
 # Reorder index to match specific order
 order = [b for b in ['AXELAR', 'LAYERZERO', 'WORMHOLE'] if b in avg_latency.index]
 avg_latency = avg_latency.loc[order]
 
 ax = avg_latency.plot(kind='bar', stacked=True, figsize=(10, 6), 
-                      color=['#F1C40F', '#8E44AD', '#3498DB'], alpha=0.85)
+                      color=['#8E44AD', '#3498DB'], alpha=0.85)
 
-plt.title('Average Latency Breakdown per Bridge', fontweight='bold', pad=15)
+plt.title('Average Latency Breakdown per Bridge (No MPC)', fontweight='bold', pad=15)
 plt.ylabel('Average Latency (Seconds)', fontweight='bold')
 plt.xlabel('Cross-Chain Bridge', fontweight='bold')
-plt.legend(['MPC Protocol', 'VDF Computation', 'Cross-Chain Dispatch'], loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=3)
+plt.legend(['VDF Computation', 'Cross-Chain Dispatch'], loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=2)
 plt.xticks(rotation=0)
 
 # Add text labels on the bars
@@ -134,4 +139,4 @@ plt.tight_layout()
 plt.savefig(f"{out_dir}/reliability_pie.png", dpi=300)
 plt.close()
 
-print("✅ Đã tạo thành công 4 biểu đồ báo cáo khoa học tại thư mục Brain (.gemini/antigravity/brain/)")
+print(f"✅ Đã tạo thành công 4 biểu đồ báo cáo khoa học tại thư mục {out_dir}/")
