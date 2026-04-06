@@ -1,13 +1,20 @@
 version: "3.9"
 
+networks:
+  mpc-net:
+    driver: bridge
+
 services:
   # MPC Node 1 (of 4 in default 3-of-4 config)
   node-1:
     build: ./nodes
+    networks: [mpc-net]
     environment:
       - NODE_ID=1
       - TOTAL_NODES=4
       - THRESHOLD=3
+      - VDF_T=${VDF_T:-262144}
+      - ZK_PROVER_ENABLED=${ZK_PROVER_ENABLED:-true}
       - SEPOLIA_RPC_URL=${SEPOLIA_RPC_URL}
     ports:
       - "8001:8000"
@@ -15,10 +22,13 @@ services:
   # MPC Node 2
   node-2:
     build: ./nodes
+    networks: [mpc-net]
     environment:
       - NODE_ID=2
       - TOTAL_NODES=4
       - THRESHOLD=3
+      - VDF_T=${VDF_T:-262144}
+      - ZK_PROVER_ENABLED=${ZK_PROVER_ENABLED:-true}
       - SEPOLIA_RPC_URL=${SEPOLIA_RPC_URL}
     ports:
       - "8002:8000"
@@ -26,10 +36,13 @@ services:
   # MPC Node 3
   node-3:
     build: ./nodes
+    networks: [mpc-net]
     environment:
       - NODE_ID=3
       - TOTAL_NODES=4
       - THRESHOLD=3
+      - VDF_T=${VDF_T:-262144}
+      - ZK_PROVER_ENABLED=${ZK_PROVER_ENABLED:-true}
       - SEPOLIA_RPC_URL=${SEPOLIA_RPC_URL}
     ports:
       - "8003:8000"
@@ -37,11 +50,14 @@ services:
   # MPC Node 4 (VDF Executor node)
   node-4:
     build: ./nodes
+    networks: [mpc-net]
     environment:
       - NODE_ID=4
       - TOTAL_NODES=4
       - THRESHOLD=3
       - IS_EXECUTOR=true
+      - VDF_T=${VDF_T:-262144}
+      - ZK_PROVER_ENABLED=${ZK_PROVER_ENABLED:-true}
       - SEPOLIA_RPC_URL=${SEPOLIA_RPC_URL}
       - AMOY_RPC_URL=${AMOY_RPC_URL}
       - AXELAR_API_KEY=${AXELAR_API_KEY}

@@ -1,0 +1,9 @@
+operation,gas_used,category
+requestRandomness,28191,CrossRand
+submitOptimisticResult_ZK,756934,CrossRand
+submitOptimisticResult_NoZK,512943,CrossRand
+challengeResult_VDF,113809,CrossRand
+finalizeRandomness,87813,CrossRand
+Chainlink_VRF_Request,100000,Baseline
+Chainlink_VRF_Fulfill,200000,Baseline
+Drand_Verify,150000,Baseline

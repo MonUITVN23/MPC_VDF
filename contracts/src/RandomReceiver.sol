@@ -9,6 +9,11 @@ contract RandomReceiver is AxelarExecutable, VDFVerifier {
 	uint256 public challengeWindow = 10 minutes;
 	bool public enforceBlsSignature = false;
 	bool public enforceZkProof = false;
+
+	// ── Dynamic Challenge Window (Anti-MEV Censorship) ──
+	uint256 public baseFeeThreshold = 100 gwei; // Start expanding at 100 Gwei
+	uint256 public maxExpansionFactor = 3;       // Maximum 3x expansion
+	bool public dynamicWindowEnabled = false;
 	IGroth16Verifier public zkVerifier;
 	bytes32 public registeredPkHash;  // SHA256(aggregate_pk_bytes)
 
@@ -56,6 +61,7 @@ contract RandomReceiver is AxelarExecutable, VDFVerifier {
 	event BlsVerificationModeUpdated(bool enabled);
 	event ZkVerifierUpdated(address verifier);
 	event ZkProofModeUpdated(bool enabled);
+	event DynamicWindowConfigUpdated(uint256 baseFeeThreshold, uint256 maxExpansionFactor, bool enabled);
 	event PkHashRegistered(bytes32 pkHash);
 	event ZkProofVerified(uint256 indexed requestId);
 
@@ -120,6 +126,34 @@ contract RandomReceiver is AxelarExecutable, VDFVerifier {
 		if (newWindow == 0) revert InvalidChallengeWindow();
 		challengeWindow = newWindow;
 		emit ChallengeWindowUpdated(newWindow);
+	}
+
+	function setDynamicWindowConfig(
+		uint256 _baseFeeThreshold,
+		uint256 _maxExpansionFactor,
+		bool _enabled
+	) external onlyOwner {
+		baseFeeThreshold = _baseFeeThreshold;
+		maxExpansionFactor = _maxExpansionFactor;
+		dynamicWindowEnabled = _enabled;
+		emit DynamicWindowConfigUpdated(_baseFeeThreshold, _maxExpansionFactor, _enabled);
+	}
+
+	/// @notice Returns effective challenge window, scaled by basefee if dynamic mode is on
+	function _dynamicChallengeWindow() internal view returns (uint256) {
+		if (!dynamicWindowEnabled || baseFeeThreshold == 0) {
+			return challengeWindow;
+		}
+		uint256 currentBaseFee = block.basefee;
+		if (currentBaseFee <= baseFeeThreshold) {
+			return challengeWindow;
+		}
+		// Scale: window * min(baseFee / threshold, maxExpansion)
+		uint256 ratio = currentBaseFee / baseFeeThreshold;
+		if (ratio > maxExpansionFactor) {
+			ratio = maxExpansionFactor;
+		}
+		return challengeWindow * ratio;
 	}
 
 	function setBlsVerificationMode(bool enabled) external onlyOwner {
@@ -213,7 +247,7 @@ contract RandomReceiver is AxelarExecutable, VDFVerifier {
 		// Legacy BLS path (kept for backward compatibility)
 		// if (enforceBlsSignature && !_verifyBlsSignature(seedCollective, blsSignature)) revert InvalidBlsSignature();
 
-		uint256 deadline = block.timestamp + challengeWindow;
+		uint256 deadline = block.timestamp + _dynamicChallengeWindow();
 		queue[requestId] = ResultItem({
 			requestId: requestId,
 			y: y,
