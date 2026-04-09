@@ -4,6 +4,8 @@ submitOptimisticResult_ZK,756934,CrossRand
 submitOptimisticResult_NoZK,512943,CrossRand
 challengeResult_VDF,113809,CrossRand
 finalizeRandomness,87813,CrossRand
-Chainlink_VRF_Request,100000,Baseline
-Chainlink_VRF_Fulfill,200000,Baseline
-Drand_Verify,150000,Baseline
+Chainlink_VRF_Request,102000,Baseline
+Chainlink_VRF_Fulfill,203000,Baseline
+Drand_Verify,182000,Baseline
+API3_QRNG_Request,55000,Baseline
+API3_QRNG_Fulfill,118000,Baseline

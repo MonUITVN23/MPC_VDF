@@ -51,12 +51,18 @@ ax1.legend(lns, labs, loc='upper left', fontsize=8)
 
 ax1.set_title('Asymmetric Off-chain Computation:\nVDF Scaling vs. Constant ZK Proving', pad=12)
 
-# Annotation
+# Annotations
 ax1.annotate('VDF: inherently sequential\n(time ∝ T)',
              xy=(df['T_exp'].iloc[-1], df['vdf_ms'].iloc[-1]),
              xytext=(-80, -30), textcoords='offset points',
              fontsize=7, fontstyle='italic', color='#2980B9',
              arrowprops=dict(arrowstyle='->', color='#2980B9', lw=0.8))
+
+ax1.annotate('ZK: constant ~3s\n(independent of T)',
+             xy=(df['T_exp'].iloc[2], df['zk_prove_ms'].iloc[2]),
+             xytext=(40, 30), textcoords='offset points',
+             fontsize=7, fontstyle='italic', color='#E74C3C',
+             arrowprops=dict(arrowstyle='->', color='#E74C3C', lw=0.8))
 
 fig.tight_layout()
 savefig(fig, 'fig1_offchain_compute.png')

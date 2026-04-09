@@ -1,6 +1,7 @@
 """
 Scenario 3: E2E Latency Breakdown — Stacked Horizontal Bar Chart
 Each bar = 1 run, colors = 5 pipeline phases.
+Legend placed outside chart to avoid overlapping bar data.
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
@@ -27,7 +28,7 @@ phase_labels = [
     '⑤ Challenge Window',
 ]
 
-fig, ax = plt.subplots(figsize=(FIGURE_WIDTH, max(FIGURE_HEIGHT, len(df) * 0.5 + 1.5)))
+fig, ax = plt.subplots(figsize=(FIGURE_WIDTH, max(FIGURE_HEIGHT, len(df) * 0.5 + 2.0)))
 
 left = np.zeros(len(df))
 for i, (col, label) in enumerate(zip(phase_cols, phase_labels)):
@@ -48,7 +49,11 @@ ax.set_yticks(df['run_id'])
 ax.set_yticklabels([f'Run {r}' for r in df['run_id']])
 ax.invert_yaxis()
 ax.set_title('End-to-End Latency Breakdown per Pipeline Phase', pad=12)
-ax.legend(loc='lower right', fontsize=7, ncol=2)
+
+# ── Legend OUTSIDE the chart (below) to avoid overlapping data ──
+ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.10), 
+          fontsize=8, ncol=3, framealpha=0.9,
+          borderaxespad=0.0, columnspacing=1.2)
 
 # Add total latency annotation
 for idx, row in df.iterrows():
@@ -56,5 +61,6 @@ for idx, row in df.iterrows():
             f'{int(row["total_ms"])}ms', va='center', fontsize=7, color='#333')
 
 fig.tight_layout()
+fig.subplots_adjust(bottom=0.18)  # Make room for legend below
 savefig(fig, 'fig3_latency_breakdown.png')
 print("Done: fig3_latency_breakdown.png")
