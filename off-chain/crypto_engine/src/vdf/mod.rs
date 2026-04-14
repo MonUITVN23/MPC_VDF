@@ -8,7 +8,14 @@ use classgroup::{
 use sha2::{Digest, Sha256};
 use vdf::create_discriminant;
 
+pub mod adaptive;
+
 const DEFAULT_DISCRIMINANT_BITS: u16 = 2048;
+
+const SMOOTHNESS_BOUND_PRIMES: &[u64] = &[
+	2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71,
+	73, 79, 83, 89, 97, 101, 103, 107, 109, 113,
+];
 
 #[derive(Debug, Clone)]
 pub struct WesolowskiVdfOutput {
@@ -41,6 +48,48 @@ fn u64_to_be_bytes(v: u64) -> [u8; 8] {
 	]
 }
 
+fn is_mersenne_like(candidate: &Mpz) -> bool {
+	let one = Mpz::from(1u64);
+	let plus_one = candidate + &one;
+	let bits = plus_one.bit_length();
+	if bits == 0 {
+		return false;
+	}
+	let mut pow2 = Mpz::from(1u64);
+	pow2 <<= (bits - 1) as usize;
+	plus_one == pow2
+}
+
+fn is_smooth_minus_one(candidate: &Mpz) -> bool {
+	let one = Mpz::from(1u64);
+	let mut n = candidate - &one;
+	for &p in SMOOTHNESS_BOUND_PRIMES {
+		let pz = Mpz::from(p);
+		while n.modulus(&pz) == Mpz::from(0u64) {
+			n = n / &pz;
+			if n == one {
+				return true;
+			}
+		}
+	}
+	false
+}
+
+fn algebraic_filter_reject(candidate: &Mpz) -> bool {
+	let three = Mpz::from(3u64);
+	let four = Mpz::from(4u64);
+	if candidate.modulus(&four) != three {
+		return true;
+	}
+	if is_mersenne_like(candidate) {
+		return true;
+	}
+	if is_smooth_minus_one(candidate) {
+		return true;
+	}
+	false
+}
+
 fn fiat_shamir_hash_to_prime(seed_parts: &[&[u8]]) -> Mpz {
 	let mut counter = 0u64;
 	loop {
@@ -53,7 +102,9 @@ fn fiat_shamir_hash_to_prime(seed_parts: &[&[u8]]) -> Mpz {
 
 		let digest = hasher.finalize();
 		let candidate = Mpz::from(&digest[..16]);
-		if candidate.probab_prime(2) != ProbabPrimeResult::NotPrime {
+		if candidate.probab_prime(2) != ProbabPrimeResult::NotPrime
+			&& !algebraic_filter_reject(&candidate)
+		{
 			return candidate;
 		}
 		counter = counter.wrapping_add(1);

@@ -1,9 +1,4 @@
 #!/bin/bash
-# =============================================================================
-# Scenario 1: Off-chain Compute Benchmark
-# Measures VDF time (T sweep 2^16 → 2^24), ZK Proving time, Peak RAM, CPU%
-# Output: scripts/benchmark/data/offchain_compute.csv
-# =============================================================================
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -13,7 +8,6 @@ CSV_FILE="$DATA_DIR/offchain_compute.csv"
 
 mkdir -p "$DATA_DIR"
 
-# ── Configuration ──
 if [ "${1:-}" = "--quick" ]; then
     T_EXPONENTS=(16 17)
     echo "[QUICK MODE] Only 2 data points for smoke test."
@@ -21,7 +15,6 @@ else
     T_EXPONENTS=(16 17 18 19 20 21)
 fi
 
-# Detect GNU time (required for peak RSS)
 GNU_TIME=""
 if command -v /usr/bin/time &>/dev/null; then
     GNU_TIME="/usr/bin/time"
@@ -31,15 +24,11 @@ else
     echo "WARNING: GNU time not found. RAM stats will be 0."
 fi
 
-# ── Build crypto_engine benchmark binary ──
 echo "Building crypto_engine (release)..."
 (cd "$PROJECT_ROOT/off-chain" && cargo build --release 2>&1 | tail -1)
 
-# ── Prepare CSV ──
 echo "T,T_exp,vdf_ms,zk_prove_ms,peak_rss_kb,cpu_percent" > "$CSV_FILE"
 
-# ── Rust helper that runs a single iteration ──
-# We create a small Rust script that calls the pipeline and outputs metrics
 BENCH_RS="$PROJECT_ROOT/off-chain/crypto_engine/src/bin/bench_offchain.rs"
 mkdir -p "$(dirname "$BENCH_RS")"
 
@@ -94,7 +83,6 @@ if [ ! -f "$BENCH_BIN" ]; then
     exit 1
 fi
 
-# ── Run ZK prove once (constant across all T) ──
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  Phase 1: Measuring ZK Proving Time (constant)"
@@ -114,7 +102,6 @@ else
 fi
 echo "  ZK Proving Time: ${ZK_TIME_MS}ms | Peak RSS: ${ZK_RSS_KB}KB | CPU: ${ZK_CPU}%"
 
-# ── Sweep VDF T parameter ──
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  Phase 2: VDF T-Parameter Sweep"

@@ -1,10 +1,5 @@
 #!/bin/bash
-# -----------------------------------------------------------------------------
-# Trình Tự Động Benchmark ZK-SNARK Cross-Chain Randomness
-# Thực thi 100 lệnh gọi Request lên mạng lưới để thu thập số liệu nghiên cứu
-# -----------------------------------------------------------------------------
 
-# Nạp thông số từ file .env
 source .env
 
 if [ -z "$PRIVATE_KEY" ] || [ -z "$SEPOLIA_RPC_URL" ] || [ -z "$RANDOM_ROUTER_ADDRESS" ]; then
@@ -25,7 +20,6 @@ echo "==========================================================="
 
 for ((i=1; i<=TOTAL_RUNS; i++))
 do
-    # Dùng micro-timestamp làm seed ngẫu nhiên cho hàm request
     SEED=$(date +%s%N)
     
     echo "[$i/$TOTAL_RUNS] Đang chuẩn bị gửi Request với Seed: $SEED..."
@@ -41,7 +35,6 @@ do
         echo "[$i/$TOTAL_RUNS] Lỗi mạng! Revert ở transaction này, tiếp tục đợi..."
     fi
 
-    # Bỏ qua delay ở vòng chạy cuối
     if [ $i -lt $TOTAL_RUNS ]; then
         echo "Đang đợi ${DELAY_SECONDS}s trạm trước khi gửi yêu cầu tiếp theo..."
         sleep $DELAY_SECONDS

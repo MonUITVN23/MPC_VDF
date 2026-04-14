@@ -3,19 +3,26 @@ pragma solidity ^0.8.20;
 
 import "@axelar-network/axelar-gmp-sdk-solidity/contracts/executable/AxelarExecutable.sol";
 import "./VDFVerifier.sol";
-import "./interfaces/IGroth16Verifier.sol";
+import "./interfaces/ITransparentVerifier.sol";
 
 contract RandomReceiver is AxelarExecutable, VDFVerifier {
-	uint256 public challengeWindow = 10 minutes;
+	uint256 public challengeWindowBlocks = 50;
 	bool public enforceBlsSignature = false;
 	bool public enforceZkProof = false;
 
-	// ── Dynamic Challenge Window (Anti-MEV Censorship) ──
-	uint256 public baseFeeThreshold = 100 gwei; // Start expanding at 100 Gwei
-	uint256 public maxExpansionFactor = 3;       // Maximum 3x expansion
+	uint256 public baseFeeThreshold = 100 gwei;
+	uint256 public maxExpansionFactor = 3;
 	bool public dynamicWindowEnabled = false;
-	IGroth16Verifier public zkVerifier;
-	bytes32 public registeredPkHash;  // SHA256(aggregate_pk_bytes)
+	ITransparentVerifier public zkVerifier;
+	bytes32 public registeredPkHash;
+
+	uint256 public challengerReward = 0.01 ether;
+	uint256 public watcherBaselineReward = 0.0005 ether;
+	uint256 public auditEpochBlocks = 1000;
+	uint256 public lastAuditBlock;
+	mapping(address => uint256) public watcherAccrued;
+	mapping(address => bool) public registeredWatcher;
+	address[] public watcherList;
 
 	uint256 private constant BN254_Q =
 		21888242871839275222246405745257275088548364400416034343698204186575808495617;
@@ -41,8 +48,8 @@ contract RandomReceiver is AxelarExecutable, VDFVerifier {
 		bytes seedCollective;
 		bytes modulus;
 		bytes blsSignature;
-		uint256 submittedAt;
-		uint256 challengeDeadline;
+		uint256 submittedAtBlock;
+		uint256 challengeDeadlineBlock;
 		bool challenged;
 		bool finalized;
 	}
@@ -53,17 +60,21 @@ contract RandomReceiver is AxelarExecutable, VDFVerifier {
 	G2Point private aggregatePublicKey;
 
 	event DataReceived(uint256 indexed requestId, bytes32 payloadHash, string sourceChain, string sourceAddress);
-	event OptimisticResultSubmitted(uint256 indexed requestId, uint256 challengeDeadline);
-	event ResultChallenged(uint256 indexed requestId, address indexed challenger, bytes computedY);
+	event OptimisticResultSubmitted(uint256 indexed requestId, uint256 challengeDeadlineBlock);
+	event ResultChallenged(uint256 indexed requestId, address indexed challenger, bytes computedY, uint256 reward);
 	event RandomnessFinalized(uint256 indexed requestId, bytes32 finalRandomness);
 	event AggregatePublicKeyUpdated(uint256[2] x, uint256[2] y);
-	event ChallengeWindowUpdated(uint256 challengeWindow);
+	event ChallengeWindowUpdated(uint256 challengeWindowBlocks);
 	event BlsVerificationModeUpdated(bool enabled);
 	event ZkVerifierUpdated(address verifier);
 	event ZkProofModeUpdated(bool enabled);
 	event DynamicWindowConfigUpdated(uint256 baseFeeThreshold, uint256 maxExpansionFactor, bool enabled);
 	event PkHashRegistered(bytes32 pkHash);
 	event ZkProofVerified(uint256 indexed requestId);
+	event WatcherRegistered(address indexed watcher);
+	event WatcherBaselinePaid(address indexed watcher, uint256 amount);
+	event WatcherRewardClaimed(address indexed watcher, uint256 amount);
+	event IncentiveConfigUpdated(uint256 challengerReward, uint256 baselineReward, uint256 auditEpochBlocks);
 
 	error NotOwner();
 	error InvalidPayload();
@@ -81,6 +92,9 @@ contract RandomReceiver is AxelarExecutable, VDFVerifier {
 	error ZkVerifierNotSet();
 	error ChallengeFailed();
 	error InvalidChallengeWindow();
+	error NotRegisteredWatcher();
+	error NothingToClaim();
+	error TransferFailed();
 
 	modifier onlyOwner() {
 		if (msg.sender != owner) revert NotOwner();
@@ -89,7 +103,10 @@ contract RandomReceiver is AxelarExecutable, VDFVerifier {
 
 	constructor(address gateway) AxelarExecutable(gateway) {
 		owner = msg.sender;
+		lastAuditBlock = block.number;
 	}
+
+	receive() external payable {}
 
 	function _execute(
 		string calldata sourceChain,
@@ -122,10 +139,10 @@ contract RandomReceiver is AxelarExecutable, VDFVerifier {
 		emit AggregatePublicKeyUpdated(x, y);
 	}
 
-	function setChallengeWindow(uint256 newWindow) external onlyOwner {
-		if (newWindow == 0) revert InvalidChallengeWindow();
-		challengeWindow = newWindow;
-		emit ChallengeWindowUpdated(newWindow);
+	function setChallengeWindow(uint256 newWindowBlocks) external onlyOwner {
+		if (newWindowBlocks == 0) revert InvalidChallengeWindow();
+		challengeWindowBlocks = newWindowBlocks;
+		emit ChallengeWindowUpdated(newWindowBlocks);
 	}
 
 	function setDynamicWindowConfig(
@@ -139,21 +156,31 @@ contract RandomReceiver is AxelarExecutable, VDFVerifier {
 		emit DynamicWindowConfigUpdated(_baseFeeThreshold, _maxExpansionFactor, _enabled);
 	}
 
-	/// @notice Returns effective challenge window, scaled by basefee if dynamic mode is on
+	function setIncentiveConfig(
+		uint256 _challengerReward,
+		uint256 _baselineReward,
+		uint256 _auditEpochBlocks
+	) external onlyOwner {
+		challengerReward = _challengerReward;
+		watcherBaselineReward = _baselineReward;
+		if (_auditEpochBlocks == 0) revert InvalidChallengeWindow();
+		auditEpochBlocks = _auditEpochBlocks;
+		emit IncentiveConfigUpdated(_challengerReward, _baselineReward, _auditEpochBlocks);
+	}
+
 	function _dynamicChallengeWindow() internal view returns (uint256) {
 		if (!dynamicWindowEnabled || baseFeeThreshold == 0) {
-			return challengeWindow;
+			return challengeWindowBlocks;
 		}
 		uint256 currentBaseFee = block.basefee;
 		if (currentBaseFee <= baseFeeThreshold) {
-			return challengeWindow;
+			return challengeWindowBlocks;
 		}
-		// Scale: window * min(baseFee / threshold, maxExpansion)
 		uint256 ratio = currentBaseFee / baseFeeThreshold;
 		if (ratio > maxExpansionFactor) {
 			ratio = maxExpansionFactor;
 		}
-		return challengeWindow * ratio;
+		return challengeWindowBlocks * ratio;
 	}
 
 	function setBlsVerificationMode(bool enabled) external onlyOwner {
@@ -162,7 +189,7 @@ contract RandomReceiver is AxelarExecutable, VDFVerifier {
 	}
 
 	function setZkVerifier(address verifier) external onlyOwner {
-		zkVerifier = IGroth16Verifier(verifier);
+		zkVerifier = ITransparentVerifier(verifier);
 		emit ZkVerifierUpdated(verifier);
 	}
 
@@ -174,6 +201,34 @@ contract RandomReceiver is AxelarExecutable, VDFVerifier {
 	function registerPkHash(bytes32 _pkHash) external onlyOwner {
 		registeredPkHash = _pkHash;
 		emit PkHashRegistered(_pkHash);
+	}
+
+	function registerWatcher() external {
+		if (!registeredWatcher[msg.sender]) {
+			registeredWatcher[msg.sender] = true;
+			watcherList.push(msg.sender);
+			emit WatcherRegistered(msg.sender);
+		}
+	}
+
+	function distributeBaselineRewards() external {
+		if (block.number < lastAuditBlock + auditEpochBlocks) return;
+		lastAuditBlock = block.number;
+		uint256 n = watcherList.length;
+		for (uint256 i = 0; i < n; i++) {
+			address w = watcherList[i];
+			watcherAccrued[w] += watcherBaselineReward;
+			emit WatcherBaselinePaid(w, watcherBaselineReward);
+		}
+	}
+
+	function claimWatcherReward() external {
+		uint256 amount = watcherAccrued[msg.sender];
+		if (amount == 0) revert NothingToClaim();
+		watcherAccrued[msg.sender] = 0;
+		(bool ok, ) = payable(msg.sender).call{value: amount}("");
+		if (!ok) revert TransferFailed();
+		emit WatcherRewardClaimed(msg.sender, amount);
 	}
 
 	function getAggregatePublicKey() external view returns (uint256[2] memory x, uint256[2] memory y) {
@@ -190,25 +245,21 @@ contract RandomReceiver is AxelarExecutable, VDFVerifier {
 		bytes memory zkProofData,
 		uint256[7] memory zkPublicSignals
 	) public {
-		if (queue[requestId].submittedAt != 0) revert ResultAlreadySubmitted();
+		if (queue[requestId].submittedAtBlock != 0) revert ResultAlreadySubmitted();
 		if (y.length == 0 || pi.length == 0 || seedCollective.length == 0 || modulus.length == 0) {
 			revert InvalidPayload();
 		}
 
-		// === ZK Proof Verification ===
 		if (zkProofData.length > 0) {
 			if (address(zkVerifier) == address(0)) revert ZkVerifierNotSet();
 
-			// Decode Groth16 proof components: (pA[2], pB[2][2], pC[2])
 			(uint[2] memory pA, uint[2][2] memory pB, uint[2] memory pC) =
 				abi.decode(zkProofData, (uint[2], uint[2][2], uint[2]));
 
-			// Verify the Groth16 proof
 			if (!zkVerifier.verifyProof(pA, pB, pC, zkPublicSignals)) {
 				revert InvalidZkProof();
 			}
 
-			// Recompute payload_hash and verify binding
 			bytes32 computedPayloadHash = sha256(
 				abi.encodePacked(
 					bytes32(requestId),
@@ -216,7 +267,6 @@ contract RandomReceiver is AxelarExecutable, VDFVerifier {
 				)
 			);
 
-			// Check payload_hash binding (public signals [4] = hi, [5] = lo)
 			bytes32 proofPayloadHash = bytes32(
 				(zkPublicSignals[4] << 128) | zkPublicSignals[5]
 			);
@@ -224,7 +274,6 @@ contract RandomReceiver is AxelarExecutable, VDFVerifier {
 				revert PayloadHashMismatch();
 			}
 
-			// Check pk_hash binding (public signals [2] = hi, [3] = lo)
 			if (registeredPkHash != bytes32(0)) {
 				bytes32 proofPkHash = bytes32(
 					(zkPublicSignals[2] << 128) | zkPublicSignals[3]
@@ -234,20 +283,16 @@ contract RandomReceiver is AxelarExecutable, VDFVerifier {
 				}
 			}
 
-			// Check request_id binding (public signal [6])
 			if (zkPublicSignals[6] != requestId) {
 				revert RequestIdMismatch();
 			}
 
 			emit ZkProofVerified(requestId);
 		} else if (enforceZkProof) {
-			// ZK mode required but no proof provided
 			revert InvalidZkProof();
 		}
-		// Legacy BLS path (kept for backward compatibility)
-		// if (enforceBlsSignature && !_verifyBlsSignature(seedCollective, blsSignature)) revert InvalidBlsSignature();
 
-		uint256 deadline = block.timestamp + _dynamicChallengeWindow();
+		uint256 deadline = block.number + _dynamicChallengeWindow();
 		queue[requestId] = ResultItem({
 			requestId: requestId,
 			y: y,
@@ -255,8 +300,8 @@ contract RandomReceiver is AxelarExecutable, VDFVerifier {
 			seedCollective: seedCollective,
 			modulus: modulus,
 			blsSignature: blsSignature,
-			submittedAt: block.timestamp,
-			challengeDeadline: deadline,
+			submittedAtBlock: block.number,
+			challengeDeadlineBlock: deadline,
 			challenged: false,
 			finalized: false
 		});
@@ -266,25 +311,33 @@ contract RandomReceiver is AxelarExecutable, VDFVerifier {
 
 	function challengeResult(uint256 requestId) external {
 		ResultItem storage item = queue[requestId];
-		if (item.submittedAt == 0) revert ResultMissing();
+		if (item.submittedAtBlock == 0) revert ResultMissing();
 		if (item.finalized) revert AlreadyFinalized();
 		if (item.challenged) revert AlreadyChallenged();
-		if (block.timestamp > item.challengeDeadline) revert ChallengeWindowExpired();
+		if (block.number > item.challengeDeadlineBlock) revert ChallengeWindowExpired();
 
 		bytes memory computedY = verifyVDF(item.seedCollective, item.pi, item.modulus);
 		bool isInvalid = keccak256(computedY) != keccak256(item.y);
 		if (!isInvalid) revert ChallengeFailed();
 
 		item.challenged = true;
-		emit ResultChallenged(requestId, msg.sender, computedY);
+
+		uint256 paid = 0;
+		if (challengerReward > 0 && address(this).balance >= challengerReward) {
+			paid = challengerReward;
+			(bool ok, ) = payable(msg.sender).call{value: paid}("");
+			if (!ok) revert TransferFailed();
+		}
+
+		emit ResultChallenged(requestId, msg.sender, computedY, paid);
 	}
 
 	function finalizeRandomness(uint256 requestId) external returns (bytes32 finalRandomness) {
 		ResultItem storage item = queue[requestId];
-		if (item.submittedAt == 0) revert ResultMissing();
+		if (item.submittedAtBlock == 0) revert ResultMissing();
 		if (item.finalized) revert AlreadyFinalized();
 		if (item.challenged) revert AlreadyChallenged();
-		if (block.timestamp < item.challengeDeadline) revert ChallengeWindowNotExpired();
+		if (block.number < item.challengeDeadlineBlock) revert ChallengeWindowNotExpired();
 
 		item.finalized = true;
 		finalRandomness = keccak256(abi.encodePacked(item.y, item.seedCollective));
