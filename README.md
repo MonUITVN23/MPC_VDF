@@ -1,220 +1,162 @@
-# CrossRand: Hybrid ZK-MPC-VDF Cross-Chain Verifiable Randomness 🎲🔗
+# CrossRand: Hybrid ZK-MPC-VDF Cross-Chain Verifiable Randomness
 
-A production-ready Proof-of-Concept for **secure, unbiased, and cross-chain verifiable randomness** using a defense-in-depth cryptographic architecture combining **Multi-Party Computation (MPC)**, **Verifiable Delay Functions (VDF)**, and **ZK-SNARK proofs**.
+A Proof-of-Concept for **secure, unbiased, cross-chain verifiable randomness** using a defense-in-depth architecture combining **MPC (BLS12-381 threshold)**, **VDF (Imaginary Quadratic Class Groups)**, and **ZK-SNARK (Circom/Groth16 over BN254)**, delivered across chains through a **multi-bridge router + adapter** layer (Axelar / LayerZero / Wormhole).
 
-> **Academic Research Project** — Designed for reproducible benchmarking and IEEE-standard scientific reporting.
-
----
-
-## ✨ Key Features
-
-| Feature | Description |
-|---------|-------------|
-| **MPC Threshold Signatures** | BLS12-381 threshold signing (3-of-4 default) eliminates single-point input bias |
-| **VDF Time-Lock** | Imaginary Quadratic Class Group (IQCG) sequential squaring prevents front-running |
-| **ZK-SNARK Verification** | Groth16 proof over BN254 resolves BLS12-381 ↔ EVM curve mismatch |
-| **Optimistic Cross-Chain** | Challenge-window model reduces gas by ~62% vs mandatory on-chain verification |
-| **Multi-Bridge Failover** | Automatic failover: Axelar → LayerZero → Wormhole |
-| **User Gas: ~116k** | DApp users pay only Request + Finalize; Relayers absorb ZK verification cost |
+> Academic research prototype — designed for reproducible benchmarking (IEEE style plots).
 
 ---
 
-## 🏛️ Architecture Overview
+## 1. What Changed Technically (so với README cũ)
 
-The protocol solves the **Randomness Trilemma** (Speed — Security — Low Gas) through a layered approach:
+Bản README trước mô tả kiến trúc tổng thể nhưng chưa phản ánh đúng trạng thái code hiện tại. Các thay đổi chính trong repo (xem `git log`):
+
+| Khu vực | Trạng thái cũ (README cũ) | Trạng thái mới (code hiện tại) |
+|---|---|---|
+| **VDF difficulty** | T cố định (`2^18`) | **Adaptive VDF difficulty** — commit `a2060f0`; T điều chỉnh theo cấu hình runtime thay vì hardcode |
+| **ZK stack** | SP1 zkVM được nhắc như 1 option | **Chỉ còn Circom 2.x + snarkjs Groth16** (BN254); SP1 đã bị gỡ. Circuit: [bls_commitment.circom](contracts/circuits/bls_commitment.circom) (Tier 1, ~200k constraints). Tier 2 pairing đầy đủ vẫn là future work. |
+| **ZK prover invocation** | Mô tả trừu tượng | Rust gọi `prove.js` qua `std::process::Command`. Wrapper: [off-chain/zk_bls_wrapper/script/prove.js](off-chain/zk_bls_wrapper/script/prove.js) + `setup.sh`, `verify.js` |
+| **Bridge layer** | Router đơn giản | Router + adapter pattern hoàn chỉnh: [RandomRouter.sol](contracts/src/RandomRouter.sol), adapters trong [contracts/src/adapters/](contracts/src/adapters/) (Axelar / LayerZero / Wormhole), kèm **bridge_registry** + **failover** ở off-chain ([network_module/src/bridges.rs](off-chain/network_module/src/bridges.rs), `bridge_registry.rs`, `relayer_factory.rs`) |
+| **Relayer architecture** | 1 binary monolithic | Tách binary: `vdf_pipeline_once`, `local_stress_benchmark`, `dummy_relayer_smoke` trong [network_module/src/bin/](off-chain/network_module/src/bin/); relayer plug-in qua `relayers/` module |
+| **On-chain verifier** | `VDFVerifier.sol` chung | Thêm **Groth16Verifier.sol** (auto-gen snarkjs) — receiver verify cả ZK proof + public signals binding (`payload_hash`, `pk_hash`, `request_id`) trước khi enqueue |
+| **Benchmark suite** | Script rời rạc | 5 kịch bản chuẩn hoá + chart IEEE: [scripts/benchmark/](scripts/benchmark/) và [scripts/plot/](scripts/plot/); thêm so sánh baseline **Chainlink VRF + Drand** (commit `e465fc1`) |
+| **Metrics log** | `e2e_metrics.csv` | **`e2e_metrics_v2.csv`** có cột `t3_5_zkprove_ms` và `bridge_name`; gas metrics tách qua `contracts/scripts/benchmark/02_gas_metrics.ts` |
+| **MPC setup** | Chỉ in-process | Có sẵn **docker-compose** 3-of-4 cluster ([docker/docker-compose.yml](docker/docker-compose.yml)) cho stress test |
+| **Contracts tests** | Vài file Sender/Receiver | Thêm **`E2E_MultiBridge_ZK.test.ts`** phủ luồng router + ZK verify đầu-cuối |
+
+Những phần KHÔNG thay đổi (giữ guardrail): MPC + VDF dual-security thesis, IQCG VDF (không dùng RSA), tách `crypto_engine` vs `network_module`, optimistic challenge-window pattern.
+
+---
+
+## 2. Architecture (current)
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                    SOURCE CHAIN (Sepolia)                        │
-│  User → requestRandomness() → LogRequest event                   │
-└──────────────────┬───────────────────────────────────────────────┘
-                   │
-┌──────────────────▼───────────────────────────────────────────────┐
-│               OFF-CHAIN PIPELINE (Rust + Node.js)                │
-│                                                                  │
-│  ① MPC Threshold Sign  →  seed_collective (~1s)                 │
-│  ② VDF Sequential Eval →  y = x^(2^T) mod Δ  (~29s @ T=2^18)    │
-│  ③ ZK-SNARK Prove      →  Groth16 proof (~3s, constant)         │
-│  ④ Bridge Dispatch      →  Axelar/LayerZero/Wormhole failover   │
-└──────────────────┬───────────────────────────────────────────────┘
-                   │
-┌──────────────────▼───────────────────────────────────────────────┐
-│              DESTINATION CHAIN (Polygon Amoy)                    │
-│                                                                  │
-│  RandomReceiver.sol                                              │
-│  ├── Verify ZK Groth16 proof (public signals binding)            │
-│  ├── Enqueue optimistic result + challenge window                │
-│  └── Finalize → randomness available for DApp                    │
-└──────────────────────────────────────────────────────────────────┘
+Source (Sepolia)                  Off-chain Relayer                 Destination (Polygon Amoy)
+┌──────────────────┐   event     ┌──────────────────────────┐   bridge    ┌──────────────────────┐
+│ RandomRouter.sol │────────────▶│ ① MPC (BLS12-381, t-of-n)│────────────▶│ RandomReceiver.sol   │
+│  + Adapters      │             │ ② VDF IQCG  y=x^(2^T)    │             │  Groth16Verifier     │
+│  (Axelar/LZ/WH)  │             │ ③ Circom/Groth16 prove   │             │  optimistic enqueue  │
+└──────────────────┘             │ ④ Router adapter dispatch│             │  challenge → finalize│
+                                 └──────────────────────────┘             └──────────────────────┘
 ```
 
-### Security Layers
-
-1. **MPC** — Eliminates input bias (no single party can control the seed)
-2. **VDF** — Eliminates premature prediction (inherently sequential, non-parallelizable)
-3. **ZK-SNARK** — Enables cheap on-chain verification despite BLS12-381/BN254 curve mismatch
-4. **Optimistic Verification** — Challenge-window model; expensive VDF verify runs only when disputed
+Security layers: **MPC** chống input-bias · **VDF** chống front-running · **ZK-SNARK** giải quyết mismatch BLS12-381 ↔ BN254 · **Optimistic verify** giảm gas user xuống ~116k.
 
 ---
 
-## 📊 Benchmark Results
-
-All benchmarks collected from automated 10-run pipelines on standard hardware. Plots generated using IEEE-standard matplotlib styling.
-
-### Fig 1 — Off-chain Computation Scaling
-
-VDF evaluation time scales linearly with delay parameter T, while ZK proving remains constant at ~3s regardless of T.
-
-![Off-chain Compute Scaling](scripts/benchmark/data/charts/fig1_offchain_compute.png)
-
-**Key Insight**: ZK proving cost is *amortized* — it does not increase with VDF security parameter. Peak RSS stays under 4 MB.
-
-### Fig 2 — Gas Economics Comparison
-
-CrossRand's optimistic model means DApp users pay only **~116k gas** (Request + Finalize), making it the cheapest option for end users.
-
-![Gas Economics](scripts/benchmark/data/charts/fig2_gas_economics.png)
-
-| Protocol | Total Pipeline Gas | **User-Paid Gas** |
-|----------|-------------------|-------------------|
-| Chainlink VRF v2 | 305,000 | **305,000** |
-| DRAND (BLS Verify) | 182,000 | **182,000** |
-| API3 QRNG | 173,000 | **173,000** |
-| **CrossRand (Ours)** | 872,938 | **116,004** ✓ |
-
-> *CrossRand's ZK verification gas (~757k) is paid by off-chain Relayers and amortized across batches.*
-
-### Fig 3 — End-to-End Latency Breakdown
-
-Each pipeline run completes in ~38–40 seconds, dominated by VDF delay (~29s) and challenge window (~5s).
-
-![Latency Breakdown](scripts/benchmark/data/charts/fig3_latency_breakdown.png)
-
-**Average Latency**: ~38.9s per randomness delivery (10-run average, T=2^18)
-
----
-
-## 🗂️ Project Structure
+## 3. Project Layout
 
 ```
-mpc-vdf/
-├── contracts/                   # Solidity smart contracts (Hardhat)
-│   ├── src/
-│   │   ├── RandomRouter.sol     # Source chain: request + dispatch
-│   │   ├── RandomReceiver.sol   # Destination: optimistic queue + challenge
-│   │   ├── VDFVerifier.sol      # On-chain VDF verification (0x05 precompile)
-│   │   ├── interfaces/          # IBridgeAdapter, IGroth16Verifier
-│   │   └── adapters/            # Axelar, LayerZero, Wormhole adapters
-│   └── circuits/                # Circom ZK circuits + snarkjs scripts
-│       ├── bls_commitment.circom
-│       └── scripts/setup.sh
-├── off-chain/                   # Rust off-chain infrastructure
-│   ├── crypto_engine/           # Pure crypto: MPC, VDF, pipeline
-│   │   ├── mpc/                 # BLS12-381 threshold signatures
-│   │   └── vdf/                 # IQCG VDF + Wesolowski proofs
-│   └── network_module/          # Async I/O, RPC polling, bridge routing
-│       ├── main.rs              # Daemon loop
-│       ├── bridges.rs           # Multi-bridge failover router
-│       └── rpc.rs               # Ethereum event filtering
-├── scripts/
-│   ├── benchmark/               # Automated benchmark scripts
-│   │   ├── 01_offchain_compute.sh
-│   │   ├── 02_gas_metrics.ts
-│   │   ├── 03_latency_breakdown.sh
-│   │   ├── 04_failover_test.sh
-│   │   ├── 05_mev_censorship.ts
-│   │   └── data/                # CSV results + chart PNGs
-│   └── plot/                    # IEEE-style matplotlib scripts
-├── Architecture.md              # Detailed architecture documentation
-└── CLAUDE.md                    # AI-assisted development context
+contracts/          Hardhat project
+  src/              RandomRouter, RandomReceiver, VDFVerifier, Groth16Verifier, adapters/, interfaces/
+  circuits/         bls_commitment.circom + scripts/{setup.sh, prove.js, verify.js}
+  scripts/          deploy/, ops/ (init/relay/finalize), benchmark/
+  test/             E2E_MultiBridge_ZK, RandomReceiver, RandomSender, VDFVerifier
+off-chain/          Rust workspace
+  crypto_engine/    mpc/, vdf/, dkg/, bin/bench_offchain
+  network_module/   main.rs, bridges.rs, bridge_registry.rs, relayer_factory.rs, relayers/, bin/*
+  zk_bls_wrapper/   prove.js, verify.js, setup.sh
+scripts/
+  benchmark/        01..05 benchmark scenarios + data/
+  plot/             IEEE-style matplotlib plots
+docker/             3-of-4 MPC cluster compose
 ```
 
 ---
 
-## 🚀 Quick Start
+## 4. Prerequisites
 
-### Prerequisites
+- Node.js 18+, npm
+- Rust 1.70+ (stable)
+- Python 3.10+ with `matplotlib pandas seaborn numpy` (plots only)
+- circom 2.x + snarkjs (global) — `npm i -g snarkjs`; circom binary from <https://github.com/iden3/circom>
+- (Optional) Foundry `cast` for sending tx on testnets
+- (Optional) Sepolia + Polygon Amoy RPC URLs + funded key for on-chain demo
 
-- **Node.js 18+** and npm
-- **Rust 1.70+** and Cargo
-- **Foundry** (cast, forge) for Solidity interactions
-- **Python 3.10+** with `matplotlib`, `pandas`, `seaborn`, `numpy` (for plotting)
-- Sepolia testnet ETH (for bridge fees)
+---
 
-### 1. Setup Smart Contracts & ZK Circuits
+## 5. Quick Test — 1–2 testcases nhỏ (không cần stress 100 runs)
+
+Mục tiêu của phần này: xác nhận pipeline hoạt động end-to-end bằng **2 testcase tối thiểu**. Không cần testnet, chạy hoàn toàn local.
+
+### 5.1 Testcase A — ZK circuit + Groth16 (1 proof)
 
 ```bash
 cd contracts
 npm install
-
-# Build ZK circuit + trusted setup (if modifying circom)
+# One-time trusted setup for the Tier-1 commitment circuit (~1–2 min, fits in 16GB RAM)
 bash circuits/scripts/setup.sh
-
-# Compile Solidity contracts
-npx hardhat compile
+# Tạo 1 proof mẫu và verify cục bộ
+node circuits/scripts/prove.js
+node circuits/scripts/verify.js
 ```
 
-### 2. Run the Off-chain Relayer
+Kỳ vọng: in `OK` / `proof verified: true`. File `proof.json`, `public.json` xuất hiện trong `contracts/circuits/`.
+
+### 5.2 Testcase B — Full pipeline once (MPC → VDF → ZK → Receiver) trên Hardhat local
+
+```bash
+# Terminal 1 — Hardhat local node
+cd contracts
+npx hardhat compile
+npx hardhat node
+```
+
+```bash
+# Terminal 2 — chạy 1 lần pipeline end-to-end
+cd off-chain
+# T nhỏ để test nhanh (~5s VDF thay vì ~29s mặc định)
+VDF_T=65536 RUST_LOG=info cargo run --bin vdf_pipeline_once --release
+```
+
+Kỳ vọng:
+- Log off-chain in tuần tự: `MPC sign OK → VDF eval ... ms → ZK prove ... ms → bridge dispatch OK`.
+- File `off-chain/e2e_metrics_v2.csv` được append 1 dòng mới có `t3_5_zkprove_ms` và `bridge_name`.
+- Hardhat node log `Groth16Verifier.verifyProof` = true và `RandomReceiver` phát event finalize sau challenge window.
+
+### 5.3 (Optional) Unit tests Solidity — 2 test mẫu
+
+```bash
+cd contracts
+npx hardhat test test/VDFVerifier.test.ts
+npx hardhat test test/E2E_MultiBridge_ZK.test.ts
+```
+
+Chỉ cần 2 file này pass là đã cover: VDF verify on-chain + luồng router/adapter/receiver + Groth16 verify.
+
+### 5.4 (Optional) Rust crypto smoke
 
 ```bash
 cd off-chain
-RUST_LOG=info cargo run --bin network_module --release
+cargo test -p crypto_engine mpc::                # ~1 MPC 3-of-4 test
+cargo test -p crypto_engine vdf:: -- --nocapture # ~1 VDF eval+verify test (T nhỏ)
 ```
-
-The relayer will start polling for `LogRequest` events on Sepolia.
-
-### 3. Submit a Randomness Request
-
-```bash
-source .env
-cast send $RANDOM_ROUTER_ADDRESS "requestRandomness(uint256)" 12345 \
-    --rpc-url $SEPOLIA_RPC_URL \
-    --private-key $PRIVATE_KEY
-```
-
-### 4. Monitor & Verify
-
-- **Relayer terminal**: MPC → VDF (~29s) → ZK Prove (~3s) → Bridge dispatch
-- **Bridge selection**: Priority `AXELAR → LAYERZERO → WORMHOLE` with automatic failover
-- **Metrics**: Results logged to `off-chain/e2e_metrics_v2.csv`
-
-### 5. Generate Benchmark Charts
-
-```bash
-source .venv/bin/activate
-python scripts/plot/plot_offchain_compute.py
-python scripts/plot/plot_gas_metrics.py
-python scripts/plot/plot_latency_breakdown.py
-```
-
-Charts output to `scripts/benchmark/data/charts/`.
 
 ---
 
-## 🔬 Design Decisions
+## 6. Going Further (không bắt buộc cho smoke test)
+
+- **Testnet demo:** `contracts/scripts/deploy/*` để deploy Router (Sepolia) + Receiver (Amoy), sau đó `scripts/ops/00_init_request.ts` → `01_relay_payload.ts` → `02_finalize_randomness.ts`.
+- **Full benchmark suite (IEEE charts):** xem [scripts/README_benchmark.md](scripts/README_benchmark.md). Các script đều hỗ trợ cờ `--quick` để chạy phiên bản rút gọn (2 điểm / 2 runs) trước khi chạy full.
+- **MPC 3-of-4 cluster:** `cd docker && VDF_T=65536 docker-compose up -d`.
+
+---
+
+## 7. Design Decisions (giữ nguyên)
 
 | Decision | Rationale |
-|----------|-----------|
-| **Circom/Groth16 over SP1 zkVM** | Custom BLS12-381 circuit (~200k constraints) fits in 16GB RAM; zkVM requires 100+ GB for pairing |
-| **IQCG VDF over RSA** | No trusted setup needed — discriminant derived from seed, fully decentralized |
-| **Bridge adapter pattern** | IBridgeAdapter interface enables swapping transport layers without re-auditing core logic |
-| **Optimistic verification** | Happy-path gas reduced by ~62%; expensive VDF/ZK checks run only on challenge |
+|---|---|
+| Circom/Groth16 thay SP1 zkVM | Tier-1 circuit (~200k constraints) fit 16GB RAM; zkVM cần 100+ GB cho pairing |
+| IQCG VDF (không RSA) | Không cần trusted setup cho discriminant; fully decentralized |
+| Bridge adapter pattern | Đổi transport layer không phải audit lại router core |
+| Optimistic verification | Happy-path gas giảm ~62%; verify đắt chỉ chạy khi bị challenge |
 
----
+## 8. Future Work
 
-## 🔮 Future Work
+- Decentralized MPC TSS thật (hiện tại PoC vẫn nặng simulation ở 1 node)
+- Tier-2 circom-pairing BLS12-381 đầy đủ (~16M constraints)
+- Frontend DApp + subgraph indexer
+- Hardware-accelerated VDF (ASIC/FPGA)
 
-- **Decentralized MPC Network**: Current MPC is single-node simulation; production needs real TSS protocol
-- **Hardware-accelerated VDF**: ASIC/FPGA to reduce VDF latency below 2–3s at large T
-- **Frontend DApp & Indexer**: Web UI + Subgraph for monitoring request lifecycle
-- **Tier 2 ZK Circuit**: Full BLS12-381 pairing verification via `circom-pairing` (~16M constraints)
+## License & Acknowledgments
 
----
-
-## 📄 License
-
-This project is developed as an academic research prototype.
-
-## 🙏 Acknowledgments
-
-Built with [Circom](https://github.com/iden3/circom), [snarkjs](https://github.com/iden3/snarkjs), [vdf-rs](https://crates.io/crates/vdf), [bls-signatures](https://crates.io/crates/bls-signatures), [Hardhat](https://hardhat.org/), and cross-chain infrastructure from [Axelar](https://axelar.network/), [LayerZero](https://layerzero.network/), and [Wormhole](https://wormhole.com/).
+Academic research prototype. Built on Circom, snarkjs, vdf-rs, bls-signatures, Hardhat, Axelar, LayerZero, Wormhole.
