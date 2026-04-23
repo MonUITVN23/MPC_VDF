@@ -1,0 +1,18 @@
+nohup: ignoring input
+Building offchain benchmark binary...
+    Finished `release` profile [optimized] target(s) in 0.14s
+warning: the following packages contain code that will be rejected by a future version of Rust: vdf v0.1.0
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 2`
+=== PHASE 1: VDF Sweep ===
+Measuring VDF for T=65536... Done in 7817 ms
+Measuring VDF for T=131072... Done in 15617 ms
+Measuring VDF for T=262144... Done in 29971 ms
+Measuring VDF for T=524288... Done in 60595 ms
+Measuring VDF for T=1048576... Done in 117241 ms
+Measuring VDF for T=2097152... Done in 242772 ms
+=== PHASE 2: ZK Profiling ===
+Measuring ZK for run=1... zk_ms=148935, peak_rss=1623152KB
+Measuring ZK for run=2... zk_ms=151939, peak_rss=1603212KB
+Measuring ZK for run=3... zk_ms=149793, peak_rss=1603220KB
+Measuring ZK for run=4... zk_ms=151092, peak_rss=1602876KB
+Measuring ZK for run=5... zk_ms=154479, peak_rss=1623192KB

@@ -427,7 +427,7 @@ async fn main() -> Result<()> {
                 }
             }
 
-            // Dịch lui 1 block (overlap) để chống tình trạng lag Indexer của RPC node
+            
             from_block = latest.saturating_sub(1);
         }
 

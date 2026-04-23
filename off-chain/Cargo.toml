@@ -2,6 +2,7 @@
 members = [
     "crypto_engine",
     "network_module",
+    "halo2_prover",
 ]
 resolver = "2"
 

@@ -1,6 +1,6 @@
 # CrossRand: Hybrid ZK-MPC-VDF Cross-Chain Verifiable Randomness
 
-A Proof-of-Concept for **secure, unbiased, cross-chain verifiable randomness** using a defense-in-depth architecture combining **MPC (BLS12-381 threshold)**, **VDF (Imaginary Quadratic Class Groups)**, and **ZK-SNARK (Circom/Groth16 over BN254)**, delivered across chains through a **multi-bridge router + adapter** layer (Axelar / LayerZero / Wormhole).
+A Proof-of-Concept for **secure, unbiased, cross-chain verifiable randomness** using a defense-in-depth architecture combining **MPC (BLS12-381 threshold)**, **VDF (Imaginary Quadratic Class Groups)**, and **ZK-SNARK (Halo2/IPA — No Trusted Setup)**, delivered across chains through a **multi-bridge router + adapter** layer (Axelar / LayerZero / Wormhole).
 
 > Academic research prototype — designed for reproducible benchmarking (IEEE style plots).
 
@@ -13,11 +13,11 @@ Bản README trước mô tả kiến trúc tổng thể nhưng chưa phản án
 | Khu vực | Trạng thái cũ (README cũ) | Trạng thái mới (code hiện tại) |
 |---|---|---|
 | **VDF difficulty** | T cố định (`2^18`) | **Adaptive VDF difficulty** — commit `a2060f0`; T điều chỉnh theo cấu hình runtime thay vì hardcode |
-| **ZK stack** | SP1 zkVM được nhắc như 1 option | **Chỉ còn Circom 2.x + snarkjs Groth16** (BN254); SP1 đã bị gỡ. Circuit: [bls_commitment.circom](contracts/circuits/bls_commitment.circom) (Tier 1, ~200k constraints). Tier 2 pairing đầy đủ vẫn là future work. |
-| **ZK prover invocation** | Mô tả trừu tượng | Rust gọi `prove.js` qua `std::process::Command`. Wrapper: [off-chain/zk_bls_wrapper/script/prove.js](off-chain/zk_bls_wrapper/script/prove.js) + `setup.sh`, `verify.js` |
+| **ZK stack** | Legacy trusted-setup stack (deprecated) | **Halo2/IPA (No Trusted Setup)** — Rust native prover in [off-chain/halo2_prover/](off-chain/halo2_prover/). Circuit: `BlsCommitmentCircuit` (~200 constraints). Uses Pasta curves with IPA commitments — fully transparent, no ceremony. |
+| **ZK prover invocation** | Rust gọi `prove.js` qua Node.js subprocess | **Native Rust** — `crypto_engine` gọi trực tiếp `halo2_prover::prove()`. Không cần Node.js, snarkjs, circom. |
 | **Bridge layer** | Router đơn giản | Router + adapter pattern hoàn chỉnh: [RandomRouter.sol](contracts/src/RandomRouter.sol), adapters trong [contracts/src/adapters/](contracts/src/adapters/) (Axelar / LayerZero / Wormhole), kèm **bridge_registry** + **failover** ở off-chain ([network_module/src/bridges.rs](off-chain/network_module/src/bridges.rs), `bridge_registry.rs`, `relayer_factory.rs`) |
 | **Relayer architecture** | 1 binary monolithic | Tách binary: `vdf_pipeline_once`, `local_stress_benchmark`, `dummy_relayer_smoke` trong [network_module/src/bin/](off-chain/network_module/src/bin/); relayer plug-in qua `relayers/` module |
-| **On-chain verifier** | `VDFVerifier.sol` chung | Thêm **Groth16Verifier.sol** (auto-gen snarkjs) — receiver verify cả ZK proof + public signals binding (`payload_hash`, `pk_hash`, `request_id`) trước khi enqueue |
+| **On-chain verifier** | Legacy verifier path (deprecated) | **Halo2Verifier.sol** — verifier dùng BN254 pairing precompiles, nhận `bytes proof` + `uint256[7] pubSignals`. Không cần trusted setup ceremony. |
 | **Benchmark suite** | Script rời rạc | 5 kịch bản chuẩn hoá + chart IEEE: [scripts/benchmark/](scripts/benchmark/) và [scripts/plot/](scripts/plot/); thêm so sánh baseline **Chainlink VRF + Drand** (commit `e465fc1`) |
 | **Metrics log** | `e2e_metrics.csv` | **`e2e_metrics_v2.csv`** có cột `t3_5_zkprove_ms` và `bridge_name`; gas metrics tách qua `contracts/scripts/benchmark/02_gas_metrics.ts` |
 | **MPC setup** | Chỉ in-process | Có sẵn **docker-compose** 3-of-4 cluster ([docker/docker-compose.yml](docker/docker-compose.yml)) cho stress test |
@@ -33,13 +33,13 @@ Những phần KHÔNG thay đổi (giữ guardrail): MPC + VDF dual-security the
 Source (Sepolia)                  Off-chain Relayer                 Destination (Polygon Amoy)
 ┌──────────────────┐   event     ┌──────────────────────────┐   bridge    ┌──────────────────────┐
 │ RandomRouter.sol │────────────▶│ ① MPC (BLS12-381, t-of-n)│────────────▶│ RandomReceiver.sol   │
-│  + Adapters      │             │ ② VDF IQCG  y=x^(2^T)    │             │  Groth16Verifier     │
-│  (Axelar/LZ/WH)  │             │ ③ Circom/Groth16 prove   │             │  optimistic enqueue  │
+│  + Adapters      │             │ ② VDF IQCG  y=x^(2^T)    │             │  Halo2Verifier       │
+│  (Axelar/LZ/WH)  │             │ ③ Halo2/IPA prove (Rust) │             │  optimistic enqueue  │
 └──────────────────┘             │ ④ Router adapter dispatch│             │  challenge → finalize│
                                  └──────────────────────────┘             └──────────────────────┘
 ```
 
-Security layers: **MPC** chống input-bias · **VDF** chống front-running · **ZK-SNARK** giải quyết mismatch BLS12-381 ↔ BN254 · **Optimistic verify** giảm gas user xuống ~116k.
+Security layers: **MPC** chống input-bias · **VDF** chống front-running · **ZK-SNARK (Halo2, no trusted setup)** giải quyết mismatch BLS12-381 ↔ BN254 · **Optimistic verify** giảm gas user xuống ~116k.
 
 ---
 
@@ -47,14 +47,14 @@ Security layers: **MPC** chống input-bias · **VDF** chống front-running · 
 
 ```
 contracts/          Hardhat project
-  src/              RandomRouter, RandomReceiver, VDFVerifier, Groth16Verifier, adapters/, interfaces/
-  circuits/         bls_commitment.circom + scripts/{setup.sh, prove.js, verify.js}
+  src/              RandomRouter, RandomReceiver, VDFVerifier, Halo2Verifier, adapters/, interfaces/
+  circuits/         bls_commitment.circom (legacy) + scripts/{setup.sh, prove.js, verify.js}
   scripts/          deploy/, ops/ (init/relay/finalize), benchmark/
   test/             E2E_MultiBridge_ZK, RandomReceiver, RandomSender, VDFVerifier
 off-chain/          Rust workspace
-  crypto_engine/    mpc/, vdf/, dkg/, bin/bench_offchain
+  crypto_engine/    mpc/, vdf/, dkg/, Halo2 integration (generate_zk_proof)
+  halo2_prover/     BlsCommitmentCircuit, prove/verify (IPA, no trusted setup)
   network_module/   main.rs, bridges.rs, bridge_registry.rs, relayer_factory.rs, relayers/, bin/*
-  zk_bls_wrapper/   prove.js, verify.js, setup.sh
 scripts/
   benchmark/        01..05 benchmark scenarios + data/
   plot/             IEEE-style matplotlib plots
@@ -68,7 +68,7 @@ docker/             3-of-4 MPC cluster compose
 - Node.js 18+, npm
 - Rust 1.70+ (stable)
 - Python 3.10+ with `matplotlib pandas seaborn numpy` (plots only)
-- circom 2.x + snarkjs (global) — `npm i -g snarkjs`; circom binary from <https://github.com/iden3/circom>
+- (No longer needed) ~~circom 2.x + snarkjs~~ — replaced by native Rust Halo2 prover
 - (Optional) Foundry `cast` for sending tx on testnets
 - (Optional) Sepolia + Polygon Amoy RPC URLs + funded key for on-chain demo
 
@@ -78,19 +78,15 @@ docker/             3-of-4 MPC cluster compose
 
 Mục tiêu của phần này: xác nhận pipeline hoạt động end-to-end bằng **2 testcase tối thiểu**. Không cần testnet, chạy hoàn toàn local.
 
-### 5.1 Testcase A — ZK circuit + Groth16 (1 proof)
+### 5.1 Testcase A — Halo2 ZK proof (native Rust, no trusted setup)
 
 ```bash
-cd contracts
-npm install
-# One-time trusted setup for the Tier-1 commitment circuit (~1–2 min, fits in 16GB RAM)
-bash circuits/scripts/setup.sh
-# Tạo 1 proof mẫu và verify cục bộ
-node circuits/scripts/prove.js
-node circuits/scripts/verify.js
+cd off-chain
+# Run Halo2 prover unit tests (proves + verifies, ~7s)
+cargo test -p halo2_prover -- --nocapture
 ```
 
-Kỳ vọng: in `OK` / `proof verified: true`. File `proof.json`, `public.json` xuất hiện trong `contracts/circuits/`.
+Kỳ vọng: 6/6 tests pass. Proof generation + verification hoàn toàn bằng Rust, không cần Node.js, snarkjs, hay trusted setup ceremony.
 
 ### 5.2 Testcase B — Full pipeline once (MPC → VDF → ZK → Receiver) trên Hardhat local
 
@@ -111,7 +107,7 @@ VDF_T=65536 RUST_LOG=info cargo run --bin vdf_pipeline_once --release
 Kỳ vọng:
 - Log off-chain in tuần tự: `MPC sign OK → VDF eval ... ms → ZK prove ... ms → bridge dispatch OK`.
 - File `off-chain/e2e_metrics_v2.csv` được append 1 dòng mới có `t3_5_zkprove_ms` và `bridge_name`.
-- Hardhat node log `Groth16Verifier.verifyProof` = true và `RandomReceiver` phát event finalize sau challenge window.
+- Hardhat node log `Halo2Verifier.verifyProof` = true và `RandomReceiver` phát event finalize sau challenge window.
 
 ### 5.3 (Optional) Unit tests Solidity — 2 test mẫu
 
@@ -121,7 +117,7 @@ npx hardhat test test/VDFVerifier.test.ts
 npx hardhat test test/E2E_MultiBridge_ZK.test.ts
 ```
 
-Chỉ cần 2 file này pass là đã cover: VDF verify on-chain + luồng router/adapter/receiver + Groth16 verify.
+Chỉ cần 2 file này pass là đã cover: VDF verify on-chain + luồng router/adapter/receiver + Halo2 verify.
 
 ### 5.4 (Optional) Rust crypto smoke
 
@@ -145,7 +141,7 @@ cargo test -p crypto_engine vdf:: -- --nocapture # ~1 VDF eval+verify test (T nh
 
 | Decision | Rationale |
 |---|---|
-| Circom/Groth16 thay SP1 zkVM | Tier-1 circuit (~200k constraints) fit 16GB RAM; zkVM cần 100+ GB cho pairing |
+| Halo2/IPA native prover thay zkVM nặng | Không cần trusted setup, chạy Rust-native, benchmark ổn định trên máy phổ thông |
 | IQCG VDF (không RSA) | Không cần trusted setup cho discriminant; fully decentralized |
 | Bridge adapter pattern | Đổi transport layer không phải audit lại router core |
 | Optimistic verification | Happy-path gas giảm ~62%; verify đắt chỉ chạy khi bị challenge |
@@ -159,4 +155,4 @@ cargo test -p crypto_engine vdf:: -- --nocapture # ~1 VDF eval+verify test (T nh
 
 ## License & Acknowledgments
 
-Academic research prototype. Built on Circom, snarkjs, vdf-rs, bls-signatures, Hardhat, Axelar, LayerZero, Wormhole.
+Academic research prototype. Built on Halo2, vdf-rs, bls-signatures, Hardhat, Axelar, LayerZero, Wormhole.

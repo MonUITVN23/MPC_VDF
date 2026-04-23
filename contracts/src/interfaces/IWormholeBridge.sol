@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: MIT
+
 pragma solidity ^0.8.20;
 
-/// @title IWormholeBridge
-/// @notice Placeholder interface for Wormhole Multi-Bridge Failover (future implementation)
+
+
 interface IWormholeBridge {
     function publishRandomnessResult(
         bytes calldata payload,

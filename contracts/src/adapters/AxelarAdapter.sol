@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+
 pragma solidity ^0.8.20;
 
 import "@axelar-network/axelar-gmp-sdk-solidity/contracts/interfaces/IAxelarGateway.sol";

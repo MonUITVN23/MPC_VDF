@@ -2,7 +2,7 @@ const fs = require('fs');
 const readline = require('readline');
 const { ethers } = require('ethers');
 
-// Cấu hình RPC
+
 const provider = new ethers.JsonRpcProvider('https://1rpc.io/sepolia');
 const CSV_FILE = 'off-chain/e2e_metrics_v2.csv';
 const OUT_CSV_FILE = 'off-chain/e2e_metrics_with_gas.csv';
@@ -29,7 +29,7 @@ async function main() {
         if (!line.trim()) continue;
 
         const columns = line.split(',');
-        // format: request_id,t1_timestamp,t2_mpc_ms,t3_vdf_ms,t4_dispatch_ms,bridge_name,bridge_id_hex,selected_bridge,attempt_count,fallback_hops,dispatch_status,error_reason,tx_hash
+        
         const txHashStr = columns[12];
         const status = columns[10].replace(/"/g, '');
 
@@ -54,11 +54,11 @@ async function main() {
                 outStream.write(`${line},0,0,0\n`);
             }
         } else {
-            // failed tx
+            
             outStream.write(`${line},0,0,0\n`);
         }
         
-        // Tránh bị RPC rate limit
+        
         await new Promise(r => setTimeout(r, 200));
     }
 

@@ -20,7 +20,7 @@ df = pd.read_csv(csv_path)
 
 fig, ax1 = plt.subplots(figsize=(FIGURE_WIDTH, FIGURE_HEIGHT))
 
-# ── Left axis: BaseFee (Area fill) ──
+
 ax1.fill_between(df['block_number'], df['base_fee_gwei'],
                  alpha=0.35, color=COLOR_AREA_FILL, label='Base Fee (Gwei)')
 ax1.plot(df['block_number'], df['base_fee_gwei'],
@@ -29,7 +29,7 @@ ax1.set_xlabel('Block Number')
 ax1.set_ylabel('Base Fee (Gwei)', color='#E65100')
 ax1.tick_params(axis='y', labelcolor='#E65100')
 
-# ── Spam zone shading ──
+
 spam_mask = df['spam_active'] == True
 if spam_mask.any():
     spam_start = df.loc[spam_mask, 'block_number'].iloc[0]
@@ -43,7 +43,7 @@ if spam_mask.any():
              ha='center', fontsize=8, color='#E74C3C', fontweight='bold',
              fontstyle='italic', alpha=0.7)
 
-# ── Right axis: Challenge Window (Line) ──
+
 ax2 = ax1.twinx()
 ax2.plot(df['block_number'], df['challenge_window_sec'],
          color=COLOR_LINE_ACCENT, linewidth=2.5, label='Challenge Window Δt (sec)')
@@ -51,14 +51,14 @@ ax2.set_ylabel('Challenge Window $\\Delta_t$ (seconds)', color=COLOR_LINE_ACCENT
 ax2.tick_params(axis='y', labelcolor=COLOR_LINE_ACCENT)
 ax2.spines['right'].set_color(COLOR_LINE_ACCENT)
 
-# ── Threshold line ──
+
 ax1.axhline(y=100, color='#999', linestyle='--', linewidth=0.8, alpha=0.5)
 ax1.text(df['block_number'].iloc[0], 110, 'baseFee threshold (100 Gwei)',
          fontsize=7, color='#999', fontstyle='italic')
 
 ax1.set_title('MEV Censorship Resistance:\nDynamic Challenge Window Response to Base Fee Spikes', pad=12)
 
-# ── Combined legend ──
+
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 legend_elements = [

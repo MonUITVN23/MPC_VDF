@@ -4,12 +4,12 @@ import seaborn as sns
 import numpy as np
 import os
 
-# Cấu hình file
+
 csv_file = 'off-chain/e2e_metrics_with_gas.csv'
 out_dir = 'test/results/charts'
 
 
-# Đảm bảo thư mục output tồn tại
+
 if not os.path.exists(out_dir):
     os.makedirs(out_dir, exist_ok=True)
 
@@ -17,22 +17,22 @@ if not os.path.exists(csv_file):
     print(f"Error: {csv_file} not found!")
     exit(1)
 
-# Tải dữ liệu
+
 df = pd.read_csv(csv_file)
 
-# Lọc dữ liệu thành công
+
 success_df = df[df['dispatch_status'] == 'success'].copy()
 
 
-# Chuyển đổi ms thành giây cho dễ nhìn (chỉ giữ VDF và Dispatch)
+
 success_df['t3_vdf_sec'] = success_df['t3_vdf_ms'] / 1000
 success_df['t4_dispatch_sec'] = success_df['t4_dispatch_ms'] / 1000
 success_df['total_latency_sec'] = success_df['t3_vdf_sec'] + success_df['t4_dispatch_sec']
 
-# Bảng màu cho bridge
+
 bridge_colors = {'AXELAR': '#2E86C1', 'LAYERZERO': '#E67E22', 'WORMHOLE': '#27AE60'}
 
-# Tắt cảnh báo
+
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -43,9 +43,9 @@ try:
 except:
     pass
 
-# =========================================================================
-# 1. Biểu đồ Boxplot: End-to-End Latency by Bridge
-# =========================================================================
+
+
+
 plt.figure(figsize=(10, 6))
 sns.boxplot(x='selected_bridge', y='total_latency_sec', data=success_df, palette=bridge_colors)
 sns.stripplot(x='selected_bridge', y='total_latency_sec', data=success_df, color='black', alpha=0.3, jitter=True)
@@ -58,12 +58,12 @@ plt.tight_layout()
 plt.savefig(f"{out_dir}/latency_boxplot.png", dpi=300)
 plt.close()
 
-# =========================================================================
-# 2. Biểu đồ Bar chart: Phân rã độ trễ (VDF vs Network)
-# =========================================================================
-# Tính trung bình các phase cho mỗi cầu (chỉ giữ VDF và Dispatch)
+
+
+
+
 avg_latency = success_df.groupby('selected_bridge')[['t3_vdf_sec', 't4_dispatch_sec']].mean()
-# Reorder index to match specific order
+
 order = [b for b in ['AXELAR', 'LAYERZERO', 'WORMHOLE'] if b in avg_latency.index]
 avg_latency = avg_latency.loc[order]
 
@@ -76,7 +76,7 @@ plt.xlabel('Cross-Chain Bridge', fontweight='bold')
 plt.legend(['VDF Computation', 'Cross-Chain Dispatch'], loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=2)
 plt.xticks(rotation=0)
 
-# Add text labels on the bars
+
 for c in ax.containers:
     ax.bar_label(c, label_type='center', fmt='%.1fs', color='white', fontweight='bold')
 
@@ -84,9 +84,9 @@ plt.tight_layout()
 plt.savefig(f"{out_dir}/latency_breakdown.png", dpi=300)
 plt.close()
 
-# =========================================================================
-# 3. Biểu đồ Bar chart: So sánh Chi phí Gas Thực tế (On-chain)
-# =========================================================================
+
+
+
 valid_gas = success_df[success_df['gas_used'] > 0]
 if not valid_gas.empty:
     avg_gas = valid_gas.groupby('selected_bridge')['gas_used'].mean().reindex(order)
@@ -99,7 +99,7 @@ if not valid_gas.empty:
     plt.xlabel('Cross-Chain Bridge', fontweight='bold')
     plt.grid(axis='y', linestyle='--', alpha=0.7)
     
-    # Add values on top of bars
+    
     for i, v in enumerate(avg_gas.values):
         if not np.isnan(v):
             ax.text(i, v + (v*0.02), f"{int(v):,}", ha='center', va='bottom', fontweight='bold', fontsize=12)
@@ -111,25 +111,25 @@ if not valid_gas.empty:
 else:
     print("Gas data empty, skipping gas plot.")
 
-# =========================================================================
-# 4. Pie chart: Success vs Fallback vs Fail
-# =========================================================================
-# Tính toán
+
+
+
+
 total_requests = len(df)
 
-# Direct success (attempt = 1, status = success)
+
 direct_success = len(df[(df['attempt_count'] == 1) & (df['dispatch_status'] == 'success')])
 
-# Failover success (attempt > 1, status = success)
+
 failover_success = len(df[(df['attempt_count'] > 1) & (df['dispatch_status'] == 'success')])
 
-# Complete failure (all attempts failed)
+
 total_failures = len(df[df['dispatch_status'] == 'failed'])
 
 labels = ['Direct Success (1st Attempt)', 'Failover Success (Rescued)', 'Permanent Failure']
 sizes = [direct_success, failover_success, total_failures]
 colors = ['#2ECC71', '#F1C40F', '#E74C3C']
-explode = (0.05, 0.05, 0.1)  # Nổi bật các miếng
+explode = (0.05, 0.05, 0.1)  
 
 plt.figure(figsize=(8, 8))
 plt.pie(sizes, explode=explode, labels=labels, colors=colors, autopct='%1.1f%%',

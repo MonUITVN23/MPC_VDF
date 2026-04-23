@@ -23,7 +23,7 @@ phase_cols = ['t1_mpc_ms', 't2_vdf_ms', 't3_zk_ms', 't4_bridge_ms', 't5_challeng
 phase_labels = [
     '① MPC Generation',
     '② VDF Delay',
-    '③ ZK Proving',
+    '③ ZK Proving (Halo2 IPA)',
     '④ Bridge Routing',
     '⑤ Challenge Window',
 ]
@@ -35,9 +35,9 @@ for i, (col, label) in enumerate(zip(phase_cols, phase_labels)):
     ax.barh(df['run_id'], df[col], left=left, label=label,
             color=PALETTE_PHASES[i], edgecolor='white', linewidth=0.3, height=0.6)
 
-    # Add time labels inside bars (only if wide enough)
+    
     for j, val in enumerate(df[col]):
-        if val > df['total_ms'].max() * 0.05:  # Only label if > 5% of total
+        if val > df['total_ms'].max() * 0.05:  
             ax.text(left[j] + val / 2, df['run_id'].iloc[j],
                     f'{int(val)}ms', ha='center', va='center',
                     fontsize=6, color='white', fontweight='bold')
@@ -50,17 +50,17 @@ ax.set_yticklabels([f'Run {r}' for r in df['run_id']])
 ax.invert_yaxis()
 ax.set_title('End-to-End Latency Breakdown per Pipeline Phase', pad=12)
 
-# ── Legend OUTSIDE the chart (below) to avoid overlapping data ──
+
 ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.10), 
           fontsize=8, ncol=3, framealpha=0.9,
           borderaxespad=0.0, columnspacing=1.2)
 
-# Add total latency annotation
+
 for idx, row in df.iterrows():
     ax.text(row['total_ms'] + df['total_ms'].max() * 0.01, row['run_id'],
             f'{int(row["total_ms"])}ms', va='center', fontsize=7, color='#333')
 
 fig.tight_layout()
-fig.subplots_adjust(bottom=0.18)  # Make room for legend below
+fig.subplots_adjust(bottom=0.18)  
 savefig(fig, 'fig3_latency_breakdown.png')
 print("Done: fig3_latency_breakdown.png")

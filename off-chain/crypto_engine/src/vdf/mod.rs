@@ -166,6 +166,7 @@ pub fn evaluate_and_generate_proof(seed_collective: &[u8], t: u64) -> Result<Wes
 mod tests {
 	use super::*;
 	use hex::encode as hex_encode;
+	use vdf::{VDFParams, VDF};
 
 	#[test]
 	fn evaluate_and_prove_outputs_non_empty_byte_arrays() {
@@ -187,7 +188,7 @@ mod tests {
 		proof_blob.extend_from_slice(&out.y_bytes);
 		proof_blob.extend_from_slice(&out.proof_pi_bytes);
 
-		let wesolowski = vdf::WesolowskiVDFParams(DEFAULT_DISCRIMINANT_BITS).new();
+		let wesolowski = VDFParams::new(vdf::WesolowskiVDFParams(DEFAULT_DISCRIMINANT_BITS));
 		assert!(wesolowski.verify(seed, t, &proof_blob).is_ok());
 	}
 
@@ -209,7 +210,7 @@ mod tests {
 		proof_blob.extend_from_slice(&y_bytes);
 		proof_blob.extend_from_slice(&proof_pi_bytes);
 
-		let wesolowski = vdf::WesolowskiVDFParams(discriminant_bits).new();
+		let wesolowski = VDFParams::new(vdf::WesolowskiVDFParams(discriminant_bits));
 		assert!(wesolowski.verify(seed, t, &proof_blob).is_ok());
 
 		assert!(

@@ -9,6 +9,7 @@
     "deploy:sender": "hardhat run scripts/deploy/01_deploy_sender.ts --network sepolia",
     "deploy:receiver": "hardhat run scripts/deploy/02_deploy_receiver.ts --network amoy",
     "benchmark": "hardhat run scripts/benchmark/e2e_latency.ts",
+    "benchmark:clean": "bash ../scripts/benchmark/00_clean_outputs.sh",
     "monitor:e2e": "ts-node scripts/benchmark/e2e_latency.ts",
     "cron:requests": "ts-node scripts/benchmark/request_cronjob.ts",
     "postprocess:metrics": "ts-node scripts/benchmark/postprocess_metrics.ts",

@@ -37,11 +37,22 @@ scripts/
 
 ## Chạy từng kịch bản
 
+### Reset dữ liệu benchmark (khuyến nghị trước mỗi đợt đo mới)
+
+```bash
+bash scripts/benchmark/00_clean_outputs.sh
+```
+
+Lệnh này xóa toàn bộ CSV/PNG benchmark cũ, thư mục temp proof, và Python cache để đảm bảo lần đo tiếp theo bắt đầu từ trạng thái sạch.
+
 ### Smoke test (kiểm tra đơn nhanh)
 
 ```bash
 # Cấp quyền
 chmod +x scripts/benchmark/*.sh
+
+# Dọn dữ liệu cũ trước khi chạy mới
+bash scripts/benchmark/00_clean_outputs.sh
 
 # Kịch bản 1: VDF sweep (chỉ 2 điểm, ~1 phút)
 bash scripts/benchmark/01_offchain_compute.sh --quick

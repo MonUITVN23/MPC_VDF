@@ -153,7 +153,7 @@ function buildSvg(rows: E2ERow[]): string {
 		.join("\n");
 
 	return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+<svg xmlns="http:
 	<rect width="100%" height="100%" fill="#f8fafc"/>
 	<text x="40" y="52" font-size="30" font-weight="700" fill="#0f172a">MPC-VDF E2E Monitoring Dashboard (Temporary)</text>
 	<text x="40" y="82" font-size="14" fill="#475569">Generated at ${new Date().toISOString()}</text>

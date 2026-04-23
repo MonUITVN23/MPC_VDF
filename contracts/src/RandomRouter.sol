@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+
 pragma solidity ^0.8.20;
 
 import "./interfaces/IBridgeAdapter.sol";
@@ -142,8 +142,8 @@ contract RandomRouter {
             seedCollective.length == 0 ||
             modulus.length == 0
         ) revert EmptyPayloadPart();
-        // blsSignature can be empty when using ZK mode
-        // zkProofData can be empty when using legacy BLS mode
+        
+        
 
         payload = abi.encode(
             requestId, y, pi, seedCollective, modulus,

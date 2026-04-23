@@ -9,14 +9,15 @@ CSV_FILE="$DATA_DIR/latency_breakdown.csv"
 mkdir -p "$DATA_DIR"
 
 if [ "${1:-}" = "--quick" ]; then
-    NUM_RUNS=2
-    VDF_T=65536   # 2^16
+    NUM_RUNS=3
+    VDF_T=65536   
     CHALLENGE_WINDOW_SEC=2
-    echo "[QUICK MODE] 2 runs, T=2^16, challenge=2s"
+    echo "[QUICK MODE] 3 runs, T=2^16, challenge=2s"
 else
-    NUM_RUNS=10
-    VDF_T=262144  # 2^18 — practical for latency measurement
+    NUM_RUNS="${BENCH_NUM_RUNS:-30}"
+    VDF_T=262144  
     CHALLENGE_WINDOW_SEC=5
+    echo "[IEEE MODE] ${NUM_RUNS} runs, T=2^18, challenge=5s"
 fi
 
 echo "Building crypto_engine (release)..."
@@ -69,7 +70,7 @@ for ((RUN=1; RUN<=NUM_RUNS; RUN++)); do
 
     echo -n "  [4/5] Bridge Routing (simulated)..."
     TS_BRIDGE_START=$(date +%s%N)
-    sleep 0.$(( RANDOM % 500 + 200 ))  # 200-700ms simulated relay
+    sleep 0.$(( RANDOM % 500 + 200 ))  
     TS_BRIDGE_DONE=$(date +%s%N)
     T4_BRIDGE_MS=$(( (TS_BRIDGE_DONE - TS_BRIDGE_START) / 1000000 ))
     echo " ${T4_BRIDGE_MS}ms"

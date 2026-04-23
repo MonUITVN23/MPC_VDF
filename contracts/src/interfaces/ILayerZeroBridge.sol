@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: MIT
+
 pragma solidity ^0.8.20;
 
-/// @title ILayerZeroBridge
-/// @notice Placeholder interface for LayerZero Multi-Bridge Failover (future implementation)
+
+
 interface ILayerZeroBridge {
     function sendRandomnessResult(
         uint16 dstChainId,

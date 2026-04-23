@@ -3,14 +3,14 @@ IEEE Q1 Publication-Quality Matplotlib Configuration
 Shared by all 5 benchmark plot scripts.
 """
 import matplotlib
-matplotlib.use('Agg')  # Non-interactive backend
+matplotlib.use('Agg')  
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import seaborn as sns
 import os
 
-# ── IEEE Style Constants ──
-FIGURE_WIDTH = 7.16        # IEEE double-column width (inches)
+
+FIGURE_WIDTH = 7.16        
 FIGURE_HEIGHT = 4.5
 DPI = 300
 FONT_FAMILY = 'serif'
@@ -19,14 +19,14 @@ FONT_SIZE = 10
 LABEL_SIZE = 11
 TITLE_SIZE = 12
 
-# ── Color Palettes ──
+
 PALETTE_PHASES = ['#2E86C1', '#E67E22', '#8E44AD', '#27AE60', '#E74C3C']
 PALETTE_BARS = ['#2980B9', '#E74C3C', '#F39C12', '#27AE60', '#8E44AD', '#7F8C8D']
 PALETTE_BRIDGES = {'AXELAR': '#2E86C1', 'LAYERZERO': '#E67E22', 'WORMHOLE': '#27AE60'}
 COLOR_AREA_FILL = '#FFB74D'
 COLOR_LINE_ACCENT = '#1565C0'
 
-# ── Output paths ──
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, '..', '..'))
 DATA_DIR = os.path.join(PROJECT_ROOT, 'scripts', 'benchmark', 'data')

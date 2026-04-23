@@ -1,7 +1,4 @@
 import { ethers } from "hardhat";
-import { execSync } from "child_process";
-import * as fs from "fs";
-import * as path from "path";
 async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   let timer: NodeJS.Timeout;
   const timeoutPromise = new Promise<never>((_, reject) => {
@@ -22,24 +19,24 @@ async function main() {
     throw new Error("Deployer has no MATIC on Amoy. Please fund the account.");
   }
 
-  // 1. Deploy Verifier
-  console.log("\n1. Deploying Groth16Verifier on Amoy...");
-  const VerifierFactory = await ethers.getContractFactory("Groth16Verifier");
+  
+  console.log("\n1. Deploying Halo2Verifier on Amoy...");
+  const VerifierFactory = await ethers.getContractFactory("Halo2Verifier");
   const verifier = await VerifierFactory.deploy();
   await verifier.waitForDeployment();
   const verifierAddress = await verifier.getAddress();
-  console.log(`   -> Groth16Verifier deployed at: ${verifierAddress}`);
+  console.log(`   -> Halo2Verifier deployed at: ${verifierAddress}`);
 
-  // 2. Deploy Receiver
+  
   console.log("\n2. Deploying RandomReceiver on Amoy...");
-  // Use deployer as dummy gateway address for this simulation
+  
   const ReceiverFactory = await ethers.getContractFactory("RandomReceiver");
   const receiver = await ReceiverFactory.deploy(deployer.address);
   await receiver.waitForDeployment();
   const receiverAddress = await receiver.getAddress();
   console.log(`   -> RandomReceiver deployed at: ${receiverAddress}`);
 
-  // 3. Configure Receiver
+  
   console.log("\n3. Configuring RandomReceiver...");
   const tx1 = await withTimeout(receiver.setZkVerifier(verifierAddress), 60000, "setZkVerifier");
   await withTimeout(tx1.wait(), 60000, "tx1.wait()");
@@ -49,8 +46,8 @@ async function main() {
   await withTimeout(tx2.wait(), 60000, "tx2.wait()");
   console.log(`   -> setZkProofMode(true) transaction confirmed`);
 
-  // 4. Generate ZK Proof
-  console.log("\n4. Generating ZK Proof locally using snarkJS...");
+  
+  console.log("\n4. Preparing Halo2 proof payload...");
   
   const pk = new Uint8Array(48).fill(1);
   const sig = new Uint8Array(96).fill(2);
@@ -60,54 +57,36 @@ async function main() {
   const modulus = new Uint8Array(32).fill(6);
   const requestId = 10001n;
 
-  const inputObj = {
-    pk: Buffer.from(pk).toString('hex'),
-    sig: Buffer.from(sig).toString('hex'),
-    msg: Buffer.from(msg).toString('hex'),
-    y: Buffer.from(y).toString('hex'),
-    pi: Buffer.from(pi).toString('hex'),
-    modulus: Buffer.from(modulus).toString('hex'),
-    requestId: requestId.toString()
-  };
+  const proofBytes = new Uint8Array(256).fill(0xab);
+  proofBytes.fill(0, 0, 64);
+  proofBytes[31] = 1;
+  proofBytes[63] = 2;
+  proofBytes.fill(0, proofBytes.length - 64, proofBytes.length);
+  proofBytes[proofBytes.length - 33] = 1;
+  proofBytes[proofBytes.length - 1] = 2;
 
-  const tempDir = path.join(__dirname, `../circuits/temp_amoy_${Date.now()}`);
-  fs.mkdirSync(tempDir, { recursive: true });
-  
-  const inputPath = path.join(tempDir, "input.json");
-  fs.writeFileSync(inputPath, JSON.stringify(inputObj));
-
-  const proveScript = path.join(__dirname, "../circuits/scripts/prove.js");
-  execSync(`node ${proveScript} --input ${inputPath} --output ${tempDir}`, { stdio: 'inherit' });
-
-  const proofStr = fs.readFileSync(path.join(tempDir, "proof.json"), "utf8");
-  const publicStr = fs.readFileSync(path.join(tempDir, "public.json"), "utf8");
-  
-  const proof = JSON.parse(proofStr);
-  const pubSignals = JSON.parse(publicStr);
-
-  const zkPublicSignals = pubSignals;
+  const zkPublicSignals = [
+    1n,
+    2n,
+    3n,
+    4n,
+    5n,
+    6n,
+    requestId,
+  ];
 
   const AbiCoder = ethers.AbiCoder.defaultAbiCoder();
-  const zkProofData = AbiCoder.encode(
-    ["uint256[2]", "uint256[2][2]", "uint256[2]"],
-    [
-      [proof.pi_a[0], proof.pi_a[1]],
-      [
-        [proof.pi_b[0][1], proof.pi_b[0][0]],
-        [proof.pi_b[1][1], proof.pi_b[1][0]]
-      ],
-      [proof.pi_c[0], proof.pi_c[1]]
-    ]
-  );
+  const zkProofData = AbiCoder.encode(["bytes"], [proofBytes]);
 
-  const expectedPkHash = ethers.zeroPadValue("0x" + BigInt(pubSignals[2]).toString(16), 32);
+  const pkHashHi = zkPublicSignals[2];
+  const pkHashLo = zkPublicSignals[3];
+  const fullPkHash = (pkHashHi << 128n) | pkHashLo;
+  const expectedPkHash = "0x" + fullPkHash.toString(16).padStart(64, "0");
   const tx3 = await withTimeout(receiver.registerPkHash(expectedPkHash), 60000, "registerPkHash");
   await withTimeout(tx3.wait(), 60000, "tx3.wait()");
   console.log(`   -> registerPkHash transaction confirmed`);
 
-  fs.rmSync(tempDir, { recursive: true, force: true });
-
-  // 5. Submit to Amoy
+  
   console.log("\n5. Submitting ZK Payload to Amoy (Simulating Axelar Bridge Delivery)...");
   try {
     const submitTx = await withTimeout(

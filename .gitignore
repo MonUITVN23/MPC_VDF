@@ -14,3 +14,12 @@ contracts/circuits/ptau/
 *.zkey
 *.sym
 *.ptau
+
+# Benchmark generated outputs
+scripts/benchmark/data/*.csv
+scripts/benchmark/data/charts/*.png
+contracts/scripts/benchmark/temp_gas_*/
+
+# Python cache artifacts
+**/__pycache__/
+*.pyc

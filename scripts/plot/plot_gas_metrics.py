@@ -19,10 +19,10 @@ if not os.path.exists(csv_path):
 
 df = pd.read_csv(csv_path)
 
-# Build a dictionary to lookup gas easily
+
 gas_dict = dict(zip(df['operation'], df['gas_used']))
 
-# ── Define protocols with Total and User-Paid breakdowns ──
+
 protocols = {
     'Chainlink\nVRF v2': {
         'total': gas_dict.get('Chainlink_VRF_Request', 102000) 
@@ -62,7 +62,7 @@ bar_width = 0.35
 
 fig, ax = plt.subplots(figsize=(FIGURE_WIDTH + 1.0, FIGURE_HEIGHT + 0.5))
 
-# ── Draw grouped bars ──
+
 bars_total = ax.bar(x - bar_width/2, totals, bar_width, 
                     color='#34495E', edgecolor='white', linewidth=1.2,
                     label='Total Pipeline Gas', alpha=0.85)
@@ -70,7 +70,7 @@ bars_user = ax.bar(x + bar_width/2, user_paid, bar_width,
                    color='#2ECC71', edgecolor='white', linewidth=1.2,
                    label='User-Paid Gas Only')
 
-# ── Value labels on top of each bar ──
+
 for bar in bars_total:
     height = bar.get_height()
     ax.text(bar.get_x() + bar.get_width()/2, height + max(totals)*0.01,
@@ -83,8 +83,8 @@ for bar in bars_user:
             f'{int(height):,}', ha='center', va='bottom', 
             fontweight='bold', fontsize=8.5, color='#1A8F4B')
 
-# ── Highlight CrossRand user-paid advantage ──
-# (Removed annotation as requested)
+
+
 
 ax.set_ylabel('Gas Consumed')
 ax.set_title('On-chain Gas Cost: Total Pipeline vs. User-Paid', pad=15)
@@ -94,8 +94,8 @@ ax.set_ylim(0, max(totals) * 1.25)
 ax.grid(axis='y', linestyle='--', alpha=0.4)
 ax.legend(loc='upper right', framealpha=0.9, fontsize=9)
 
-# ── Footnote ──
-footnote = ("* CrossRand: ZK Verification Gas (~757k) is paid by off-chain Relayers,\n"
+
+footnote = ("* CrossRand: ZK Verification Gas (Halo2 IPA verifier, no trusted setup) paid by off-chain Relayers,\n"
             "  amortized across batches. DApp users pay only Request + Finalize.")
 fig.text(0.5, -0.04, footnote, ha='center', va='top', fontsize=8.5, 
          style='italic', color='#444444',

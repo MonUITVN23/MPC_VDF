@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+
 pragma solidity ^0.8.20;
 
 import "@axelar-network/axelar-gmp-sdk-solidity/contracts/executable/AxelarExecutable.sol";
@@ -42,14 +42,8 @@ contract RandomReceiver is AxelarExecutable, VDFVerifier {
 	}
 
 	struct ResultItem {
-		uint256 requestId;
-		bytes y;
-		bytes pi;
-		bytes seedCollective;
-		bytes modulus;
-		bytes blsSignature;
-		uint256 submittedAtBlock;
 		uint256 challengeDeadlineBlock;
+		bytes32 payloadHash;
 		bool challenged;
 		bool finalized;
 	}
@@ -75,6 +69,7 @@ contract RandomReceiver is AxelarExecutable, VDFVerifier {
 	event WatcherBaselinePaid(address indexed watcher, uint256 amount);
 	event WatcherRewardClaimed(address indexed watcher, uint256 amount);
 	event IncentiveConfigUpdated(uint256 challengerReward, uint256 baselineReward, uint256 auditEpochBlocks);
+	event FalseChallenge(uint256 indexed requestId, address watcher);
 
 	error NotOwner();
 	error InvalidPayload();
@@ -245,63 +240,42 @@ contract RandomReceiver is AxelarExecutable, VDFVerifier {
 		bytes memory zkProofData,
 		uint256[7] memory zkPublicSignals
 	) public {
-		if (queue[requestId].submittedAtBlock != 0) revert ResultAlreadySubmitted();
+		if (queue[requestId].challengeDeadlineBlock != 0) revert ResultAlreadySubmitted();
 		if (y.length == 0 || pi.length == 0 || seedCollective.length == 0 || modulus.length == 0) {
 			revert InvalidPayload();
 		}
 
 		if (zkProofData.length > 0) {
-			if (address(zkVerifier) == address(0)) revert ZkVerifierNotSet();
+        if (address(zkVerifier) == address(0)) revert ZkVerifierNotSet();
+        
+        bytes memory proofBytes = abi.decode(zkProofData, (bytes));
+        if (!zkVerifier.verifyProof(proofBytes, zkPublicSignals)) {
+            revert InvalidZkProof();
+        }
 
-			(uint[2] memory pA, uint[2][2] memory pB, uint[2] memory pC) =
-				abi.decode(zkProofData, (uint[2], uint[2][2], uint[2]));
+        bytes32 computedPayloadHash = sha256(abi.encodePacked(bytes32(requestId), y, pi, seedCollective, modulus));
+        bytes32 proofPayloadHash = bytes32((zkPublicSignals[4] << 128) | zkPublicSignals[5]);
+        if (computedPayloadHash != proofPayloadHash) revert PayloadHashMismatch();
 
-			if (!zkVerifier.verifyProof(pA, pB, pC, zkPublicSignals)) {
-				revert InvalidZkProof();
-			}
+        if (registeredPkHash != bytes32(0)) {
+            bytes32 proofPkHash = bytes32((zkPublicSignals[2] << 128) | zkPublicSignals[3]);
+            if (registeredPkHash != proofPkHash) revert CommitteeKeyMismatch();
+        }
 
-			bytes32 computedPayloadHash = sha256(
-				abi.encodePacked(
-					bytes32(requestId),
-					y, pi, seedCollective, modulus
-				)
-			);
-
-			bytes32 proofPayloadHash = bytes32(
-				(zkPublicSignals[4] << 128) | zkPublicSignals[5]
-			);
-			if (computedPayloadHash != proofPayloadHash) {
-				revert PayloadHashMismatch();
-			}
-
-			if (registeredPkHash != bytes32(0)) {
-				bytes32 proofPkHash = bytes32(
-					(zkPublicSignals[2] << 128) | zkPublicSignals[3]
-				);
-				if (registeredPkHash != proofPkHash) {
-					revert CommitteeKeyMismatch();
-				}
-			}
-
-			if (zkPublicSignals[6] != requestId) {
-				revert RequestIdMismatch();
-			}
-
-			emit ZkProofVerified(requestId);
+        if (zkPublicSignals[6] != requestId) revert RequestIdMismatch();
+        
+        emit ZkProofVerified(requestId);
 		} else if (enforceZkProof) {
 			revert InvalidZkProof();
 		}
 
 		uint256 deadline = block.number + _dynamicChallengeWindow();
+    
+		bytes32 pHash = keccak256(abi.encode(y, pi, seedCollective, modulus, blsSignature));
+
 		queue[requestId] = ResultItem({
-			requestId: requestId,
-			y: y,
-			pi: pi,
-			seedCollective: seedCollective,
-			modulus: modulus,
-			blsSignature: blsSignature,
-			submittedAtBlock: block.number,
 			challengeDeadlineBlock: deadline,
+			payloadHash: pHash,
 			challenged: false,
 			finalized: false
 		});
@@ -309,38 +283,64 @@ contract RandomReceiver is AxelarExecutable, VDFVerifier {
 		emit OptimisticResultSubmitted(requestId, deadline);
 	}
 
-	function challengeResult(uint256 requestId) external {
-		ResultItem storage item = queue[requestId];
-		if (item.submittedAtBlock == 0) revert ResultMissing();
-		if (item.finalized) revert AlreadyFinalized();
-		if (item.challenged) revert AlreadyChallenged();
-		if (block.number > item.challengeDeadlineBlock) revert ChallengeWindowExpired();
+	function challengeResult(
+		uint256 requestId,
+		bytes calldata y,
+		bytes calldata pi,
+		bytes calldata seedCollective,
+		bytes calldata modulus,
+		bytes calldata blsSignature,
+		bytes calldata zkProofData,
+		uint256[7] calldata zkPublicSignals
+	) external {
+    	ResultItem storage item = queue[requestId];
+    	if (item.challengeDeadlineBlock == 0) revert ResultMissing();
+    	if (item.finalized) revert AlreadyFinalized();
+    	if (item.challenged) revert AlreadyChallenged();
+    	if (block.number > item.challengeDeadlineBlock) revert ChallengeWindowExpired();
 
-		bytes memory computedY = verifyVDF(item.seedCollective, item.pi, item.modulus);
-		bool isInvalid = keccak256(computedY) != keccak256(item.y);
-		if (!isInvalid) revert ChallengeFailed();
+    	bytes memory proofBytes = abi.decode(zkProofData, (bytes));
+    	if (!zkVerifier.verifyProof(proofBytes, zkPublicSignals)) {
+        	assembly { log0(0,0) }
+    	}
 
-		item.challenged = true;
+    	bytes32 computedPayloadHash = sha256(abi.encodePacked(bytes32(requestId), y, pi, seedCollective, modulus));
+    	bytes32 proofPayloadHash = bytes32((zkPublicSignals[4] << 128) | zkPublicSignals[5]);
+    	if (computedPayloadHash != proofPayloadHash) {
+            assembly { log0(0,0) }
+        }
+    	bytes memory computedY = verifyVDF(seedCollective, pi, modulus);
+    	if (keccak256(computedY) != keccak256(y)) {
+            assembly { log0(0,0) }
+        }
 
-		uint256 paid = 0;
-		if (challengerReward > 0 && address(this).balance >= challengerReward) {
-			paid = challengerReward;
-			(bool ok, ) = payable(msg.sender).call{value: paid}("");
-			if (!ok) revert TransferFailed();
-		}
+    	bytes32 provenHash = keccak256(abi.encode(y, pi, seedCollective, modulus, blsSignature));
 
-		emit ResultChallenged(requestId, msg.sender, computedY, paid);
+    	if (item.payloadHash == provenHash) {
+        	emit FalseChallenge(requestId, msg.sender);
+        	return;
+    	}
+    	item.challenged = true;
+    
+    	uint256 paid = 0;
+    	if (challengerReward > 0 && address(this).balance >= challengerReward) {
+        	paid = challengerReward;
+        	(bool ok, ) = payable(msg.sender).call{value: paid}("");
+        	if (!ok) revert TransferFailed();
+    	}
+
+    	emit ResultChallenged(requestId, msg.sender, computedY, paid);
 	}
 
 	function finalizeRandomness(uint256 requestId) external returns (bytes32 finalRandomness) {
 		ResultItem storage item = queue[requestId];
-		if (item.submittedAtBlock == 0) revert ResultMissing();
+		if (item.challengeDeadlineBlock == 0) revert ResultMissing();
 		if (item.finalized) revert AlreadyFinalized();
 		if (item.challenged) revert AlreadyChallenged();
 		if (block.number < item.challengeDeadlineBlock) revert ChallengeWindowNotExpired();
 
 		item.finalized = true;
-		finalRandomness = keccak256(abi.encodePacked(item.y, item.seedCollective));
+		finalRandomness = item.payloadHash;
 		finalRandomnessByRequest[requestId] = finalRandomness;
 
 		emit RandomnessFinalized(requestId, finalRandomness);

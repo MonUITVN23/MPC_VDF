@@ -9,15 +9,16 @@ CSV_FILE="$DATA_DIR/failover_timeseries.csv"
 mkdir -p "$DATA_DIR"
 
 if [ "${1:-}" = "--quick" ]; then
-    TOTAL_REQUESTS=10
-    KILL_AT=4
-    echo "[QUICK MODE] 10 requests, kill at #4"
+    TOTAL_REQUESTS=12
+    KILL_AT=5
+    echo "[QUICK MODE] 12 requests, kill at #5"
 else
-    TOTAL_REQUESTS=100
-    KILL_AT=40
+    TOTAL_REQUESTS="${BENCH_TOTAL_REQUESTS:-120}"
+    KILL_AT="${BENCH_KILL_AT:-40}"
+    echo "[IEEE MODE] ${TOTAL_REQUESTS} requests, kill at #${KILL_AT}"
 fi
 
-VDF_T=65536  # 2^16
+VDF_T=65536  
 
 echo "Building crypto_engine (release)..."
 (cd "$PROJECT_ROOT/off-chain" && cargo build --release 2>&1 | tail -1)

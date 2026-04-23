@@ -7,7 +7,6 @@ fn main() {
     let t: u64 = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(65536);
     let mode = args.get(2).map(|s| s.as_str()).unwrap_or("vdf");
 
-    // Generate MPC seed
     let collective = mpc::init_collective_seed_default().expect("MPC failed");
     let seed: [u8; 32] = {
         use sha2::{Sha256, Digest};
@@ -25,14 +24,8 @@ fn main() {
             println!("{}", elapsed);
         }
         "zk" => {
-            // ZK proving: call the full pipeline which includes ZK step
-            let start = Instant::now();
-            let output = crypto_engine::run_randomness_pipeline_full(
-                "bench-zk", b"seed", t, 1, &[0u8; 32],
-            ).expect("Pipeline failed");
-            let _elapsed_total = start.elapsed().as_millis();
-            // Print just ZK time from the pipeline's own measurement
-            println!("{}", output.metadata.benchmark.t3_5_zkprove_ms);
+            let elapsed = crypto_engine::bench_zk_only(10);
+            println!("{}", elapsed);
         }
         _ => eprintln!("Unknown mode: {}", mode),
     }

@@ -13,13 +13,13 @@ The protocol solves the Randomness Paradox using a dual-layer cryptographic appr
 
 1.  **Multi-Party Computation (MPC):** Eliminates *Input Bias*. A set of distinct nodes independently generate random shares and combine them using a threshold cryptography protocol (BLS12-381). No minority coalition can manipulate the output seed.
 2.  **Verifiable Delay Function (VDF):** Eliminates *Premature Prediction (Front-running)*. The MPC aggregate seed is passed through an inherently sequential, non-parallelizable mathematical function (Squaring in an Imaginary Quadratic Class Group). This enforces a strict time delay before the final random number is known, ensuring the MPC committee cannot exploit early knowledge of their own generated seed.
-3.  **Zero-Knowledge Proofs (ZK-SNARK):** Resolves *Cryptographic Curve Incompatibilities*. EVM chains (like Ethereum/Polygon) natively support BN254 pairing precompiles but lack cheap BLS12-381 support. The off-chain nodes generate a Groth16 ZK-SNARK over BN254 to prove the validity of the BLS12-381 signature, enabling cheap on-chain verification without deploying complex pairing libraries.
+3.  **Zero-Knowledge Proofs (ZK):** Resolves *Cryptographic Curve Incompatibilities*. EVM chains (like Ethereum/Polygon) natively support BN254 pairing precompiles but lack cheap BLS12-381 support. The off-chain nodes generate a Halo2 proof to prove the validity/binding of off-chain cryptographic data, enabling practical on-chain verification without deploying complex pairing libraries.
 
 ### 1.2 The Cross-Chain "Optimistic" Verification
 Verifying VDFs and ZK proofs on-chain costs gas. To make the protocol economically viable for dApps, we implement an **Optimistic Verification** model:
 -   **Submit:** A relayer submits the randomness payload (VDF output, ZK public signals binding the signature) to the destination.
 -   **Challenge Window:** The payload enters a queue for a configurable period (e.g., 10 minutes).
--   **Challenge:** If an independent watcher detects an invalid ZK proof or VDF evaluation, they can trigger an on-chain verification (`0x05` modexp for VDF, Groth16 verifier for ZK). If the challenge succeeds, the submitter is slashed, and the payload is rejected.
+-   **Challenge:** If an independent watcher detects an invalid ZK proof or VDF evaluation, they can trigger an on-chain verification (`0x05` modexp for VDF, Halo2 verifier for ZK). If the challenge succeeds, the submitter is slashed, and the payload is rejected.
 -   **Finalize:** If the window passes without a successful challenge, the randomness is considered valid and finalized for the dApp to consume.
 
 ---
@@ -44,7 +44,7 @@ sequenceDiagram
     O->>O: 3a. MPC Threshold: sig = BLS(seed), seed_col = H(sig)
     O->>O: 3b. VDF Eval: y = seed_col^(2^T)
     O->>O: 3c. VDF Proof: pi = Wesolowski(y)
-    O->>O: 3d. ZK SNARK: proof = Groth16(sig, hash)
+    O->>O: 3d. ZK: proof = Halo2(sig, hash)
     end
     
     O->>R: 4. relayVDFPayload(y, pi, ..., ZK_proof)
@@ -55,7 +55,7 @@ sequenceDiagram
     B-->>RC: 6. Cross-chain Delivery
     end
     
-    RC->>RC: 7a. Verify ZK Groth16 Proof
+    RC->>RC: 7a. Verify ZK Halo2 Proof
     RC->>RC: 7b. Enqueue Optimistic Result
     
     rect rgb(60, 30, 40)
@@ -76,7 +76,7 @@ sequenceDiagram
     -   The decentralized `network_module` nodes listen to the source chain and pick up the `LogRequest`.
     -   The `crypto_engine` initiates a DKG/Threshold signing round to produce `seed_collective` and an aggregate BLS `signature`.
     -   The nodes independently compute the VDF over `seed_collective`, yielding the delayed output `y` and a Wesolowski proof `pi`.
-    -   The node generates a Groth16 ZK-SNARK proving knowledge of the BLS signature and binding it to the payload data.
+    -   The node generates a Halo2 proof binding off-chain cryptographic results to the payload data.
 3.  **Transport (Interoperability Layer):**
     -   The winning node (or designated relayer) invokes `relayVDFPayload` on the Source `RandomRouter.sol`, passing the `y`, `pi`, `seed_collective`, and ZK public signals.
     -   The Router dispatches the payload via a configured `IBridgeAdapter` (e.g., Axelar, LayerZero, Wormhole).
@@ -99,7 +99,7 @@ Written in Solidity, managed by Hardhat.
 *   **`adapters/` (Source & Destination):** Contracts implementing `IBridgeAdapter.sol`. These wrap specific cross-chain protocols (Axelar, LayerZero) to provide a uniform `.dispatchPayload()` interface for the router.
 *   **`RandomReceiver.sol` (Destination):** The optimistic queue manager. Implements state machine logic (`submitOptimisticResult`, `challengeResult`, `finalizeResult`).
 *   **`VDFVerifier.sol`:** Contains the fallback logic to verify Wesolowski VDF proofs on-chain utilizing the EVM's `0x05` (modexp) precompile.
-*   **`circuits/` (ZK Circom):** Contains the `bls_commitment.circom` circuit definition, TS setup/prove/verify scripts, and generates `Groth16Verifier.sol`.
+*   **`off-chain/halo2_prover/` (Halo2):** Contains the native Rust Halo2 prover/verifier pipeline used by off-chain components and benchmark flows.
 
 ### 3.2 Off-chain Crypto Engine (`off-chain/crypto_engine/`)
 Pure Rust library dedicated to cryptography. Has no knowledge of blockchains or networks.
@@ -119,9 +119,9 @@ Rust async application focused on I/O, routing, and blockchain interactions.
 
 ## 4. Key Design Decisions & Rationale
 
-1.  **Why Circom/Groth16 instead of full SP1 zkVM?**
-    *   While a zkVM can generically prove the entire Rust pipeline, generating STARK proofs for complex pairing operations currently requires hundreds of gigabytes of RAM.
-    *   Circom + Groth16 allows us to write a highly optimized, custom circuit just for the BLS12-381 signature verification step. The "Tier 1" commitment approach compiles to ~200k constraints, enabling proof generation in seconds on a standard 16GB RAM laptop, making academic benchmarking feasible.
+1.  **Why native Halo2 instead of full zkVM?**
+    *   While a zkVM can generically prove the entire Rust pipeline, generating heavy proofs for complex pairing operations currently requires substantial resources.
+    *   Native Halo2 prover flow allows an optimized circuit for the key binding/verification step with practical proving time and reproducible benchmarking on commodity hardware.
 2.  **Why IQCG VDFs instead of RSA?**
     *   RSA requires a trusted setup (generation of a modulus $N$ with unknown factorization). An IQCG VDF dynamically generates a class group from the input seed (using the seed to derive a negative prime discriminant $\Delta$). This creates a perfectly decentralized, setup-free environment.
 3.  **Why Bridge Adapters?**

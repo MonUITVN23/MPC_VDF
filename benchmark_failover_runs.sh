@@ -32,7 +32,7 @@ send_requests() {
     export BRIDGE_PRIORITY=$bridge_name
     
     pkill -f network_module 2>/dev/null
-    sleep 2 # Tránh lỗi "could not acquire package cache lock" của Cargo
+    sleep 2 
     
     (cd off-chain && RUST_LOG=info cargo run --bin network_module --release > /tmp/relayer.log 2>&1 &)
     

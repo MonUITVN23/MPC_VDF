@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+halo2_prover = { path = "../halo2_prover" }
+halo2_proofs = "0.3"
 vdf.workspace = true
 classgroup.workspace = true
 bls-signatures.workspace = true

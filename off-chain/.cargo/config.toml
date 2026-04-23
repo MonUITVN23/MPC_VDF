@@ -1,2 +1,23 @@
 [net]
 git-fetch-with-cli = true
+
+[build]
+# Limit parallel compilation jobs for 16GB RAM system (i5-12500H)
+# Prevents OOM when compiling large dependency graphs (halo2_proofs, ethers, etc.)
+jobs = 4
+
+[profile.dev]
+# Fewer codegen units = less linker memory pressure
+codegen-units = 4
+incremental = true
+
+[profile.test]
+# Same limits for test profile
+codegen-units = 4
+# Slight optimization makes VDF + Halo2 tests run faster
+opt-level = 1
+
+[profile.release]
+codegen-units = 8
+opt-level = 3
+lto = "thin"

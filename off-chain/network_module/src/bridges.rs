@@ -39,10 +39,10 @@ pub struct RelayPayload {
     pub modulus: Vec<u8>,
     pub aggregate_signature: Vec<u8>,
     pub cross_chain_fee_wei: U256,
-    /// Groth16 proof data: abi.encode(pA[2], pB[2][2], pC[2]). Empty if not using ZK mode.
+    
     pub zk_proof_data: Vec<u8>,
-    /// ZK public signals [commitment_hi, commitment_lo, pk_hash_hi, pk_hash_lo,
-    ///                     payload_hash_hi, payload_hash_lo, request_id]
+    
+    
     pub zk_public_signals: [U256; 7],
 }
 
@@ -319,7 +319,7 @@ async fn relay_via_router(
 
     let (fee_to_pay, fallback_used) = match estimated_fee_result {
         Ok(estimated_fee) => {
-            // Sentinel: if adapter returns type(uint256).max, route is not configured
+            
             let max_sentinel = U256::from_dec_str(
                 "115792089237316195423570985008687907853269984665640564039457584007913129639935"
             ).unwrap_or(U256::MAX);
