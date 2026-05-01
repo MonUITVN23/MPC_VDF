@@ -87,7 +87,7 @@ Source Chain (Sepolia)            Off-chain Relayer (Rust)           Destination
 
 ## End-to-End Workflow
 
-![End-to-End Workflow](./assets/The_High_Level_Architecture.png)
+![End-to-End Workflow](./assets/The%20High-Level%20Architecture.png)
 
 ---
 
