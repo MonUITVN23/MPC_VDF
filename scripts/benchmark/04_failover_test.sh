@@ -30,66 +30,61 @@ if [ ! -f "$BENCH_BIN" ]; then
     exit 1
 fi
 
-PRIMARY_BRIDGE_PID=""
-BACKUP_BRIDGE_PID=""
 PRIMARY_ALIVE=true
 
-simulate_primary_bridge() {
-    sleep 0.$(( RANDOM % 200 + 200 ))
-}
-
-simulate_backup_bridge() {
-    sleep 0.$(( RANDOM % 400 + 400 ))
-}
-
-simulate_failover_detection() {
-    sleep 0.$(( RANDOM % 1000 + 500 ))
-}
-
-echo "request_id,latency_ms,bridge_used,failover_occurred" > "$CSV_FILE"
+# Detailed CSV Header for better plotting
+echo "request_id,vdf_ms,bridge_ms,detection_ms,total_latency_ms,bridge_used,failover_status" > "$CSV_FILE"
 
 echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "------------------------------------------------"
 echo "  Scenario 4: Cross-chain Failover Test"
 echo "  Total: $TOTAL_REQUESTS requests | Kill primary at #$KILL_AT"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "------------------------------------------------"
 
 for ((REQ=1; REQ<=TOTAL_REQUESTS; REQ++)); do
-    TS_START=$(date +%s%N)
-
     if [ "$REQ" -eq "$KILL_AT" ]; then
         echo ""
-        echo "  ⚠️  KILLING PRIMARY BRIDGE (Axelar) at request #$REQ ⚠️"
+        echo "  [SYSTEM ALERT] KILLING PRIMARY BRIDGE (Axelar) at request #$REQ"
         PRIMARY_ALIVE=false
         echo ""
     fi
 
+    # 1. Actual VDF Computation
+    TS_START=$(date +%s%N)
     $BENCH_BIN "$VDF_T" vdf > /dev/null 2>&1
+    TS_END=$(date +%s%N)
+    VDF_MS=$(( (TS_END - TS_START) / 1000000 ))
 
+    # 2. Simulated Network Dynamics
     BRIDGE_USED="AXELAR"
-    FAILOVER="false"
+    FAILOVER_STATUS="STABLE"
+    BRIDGE_MS=0
+    DETECTION_MS=0
 
     if [ "$PRIMARY_ALIVE" = true ]; then
-        simulate_primary_bridge
+        # Primary bridge routing: 200ms - 400ms
+        BRIDGE_MS=$(( RANDOM % 200 + 200 ))
         BRIDGE_USED="AXELAR"
     else
-        if [ "$REQ" -le $((KILL_AT + 5)) ]; then
-            simulate_failover_detection
-            FAILOVER="true"
-        fi
-        simulate_backup_bridge
         BRIDGE_USED="LAYERZERO"
-        FAILOVER="true"
+        # Simulate timeout/detection overhead for the first 5 requests after failure
+        if [ "$REQ" -le $((KILL_AT + 5)) ]; then
+            DETECTION_MS=$(( RANDOM % 1000 + 500 ))
+            FAILOVER_STATUS="RECOVERING"
+        else
+            FAILOVER_STATUS="STABLE_BACKUP"
+        fi
+        # Backup bridge routing: 400ms - 800ms
+        BRIDGE_MS=$(( RANDOM % 400 + 400 ))
     fi
 
-    TS_END=$(date +%s%N)
-    LATENCY_MS=$(( (TS_END - TS_START) / 1000000 ))
+    TOTAL_LATENCY_MS=$(( VDF_MS + BRIDGE_MS + DETECTION_MS ))
 
-    echo "  [$REQ/$TOTAL_REQUESTS] Bridge=$BRIDGE_USED | Latency=${LATENCY_MS}ms | Failover=$FAILOVER"
-    echo "$REQ,$LATENCY_MS,$BRIDGE_USED,$FAILOVER" >> "$CSV_FILE"
+    echo "  [$REQ/$TOTAL_REQUESTS] Bridge=$BRIDGE_USED | Latency=${TOTAL_LATENCY_MS}ms | Status=$FAILOVER_STATUS"
+    echo "$REQ,$VDF_MS,$BRIDGE_MS,$DETECTION_MS,$TOTAL_LATENCY_MS,$BRIDGE_USED,$FAILOVER_STATUS" >> "$CSV_FILE"
 done
 
 echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  ✅ Output: $CSV_FILE"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "------------------------------------------------"
+echo "  Output generated: $CSV_FILE"
+echo "------------------------------------------------"

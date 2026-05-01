@@ -1,10 +1,6 @@
-"""
-Scenario 5: MEV Censorship — Dual-axis Area + Line Chart
-Area fill: BaseFee (Gwei), Line: Challenge Window Duration (seconds)
-"""
 import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
-from ieee_style import (apply_ieee_style, FIGURE_WIDTH, FIGURE_HEIGHT, 
+from ieee_style import (apply_ieee_style, FIGURE_WIDTH, FIGURE_HEIGHT,
                         DATA_DIR, plt, savefig, COLOR_AREA_FILL, COLOR_LINE_ACCENT)
 import pandas as pd
 import numpy as np
@@ -17,56 +13,74 @@ if not os.path.exists(csv_path):
     sys.exit(1)
 
 df = pd.read_csv(csv_path)
+df = df.sort_values('base_fee_gwei')
 
 fig, ax1 = plt.subplots(figsize=(FIGURE_WIDTH, FIGURE_HEIGHT))
 
+ax1.fill_between(df['base_fee_gwei'], df['challenge_window_blocks'],
+                 alpha=0.25, color=COLOR_AREA_FILL)
+ax1.plot(df['base_fee_gwei'], df['challenge_window_blocks'],
+         color=COLOR_LINE_ACCENT, linewidth=2.5, marker='o', markersize=5,
+         label='Challenge Window (blocks)')
 
-ax1.fill_between(df['block_number'], df['base_fee_gwei'],
-                 alpha=0.35, color=COLOR_AREA_FILL, label='Base Fee (Gwei)')
-ax1.plot(df['block_number'], df['base_fee_gwei'],
-         color='#E65100', linewidth=1, alpha=0.7)
-ax1.set_xlabel('Block Number')
-ax1.set_ylabel('Base Fee (Gwei)', color='#E65100')
-ax1.tick_params(axis='y', labelcolor='#E65100')
+ax1.set_xlabel('Base Fee (Gwei)')
+ax1.set_ylabel('Challenge Window (blocks)', color=COLOR_LINE_ACCENT)
+ax1.tick_params(axis='y', labelcolor=COLOR_LINE_ACCENT)
 
+threshold_fee = 100
+ax1.axvline(x=threshold_fee, color='#E74C3C', linestyle='--', linewidth=1.5, alpha=0.7)
+ax1.annotate('Base Fee Threshold\n(100 Gwei)',
+             xy=(threshold_fee, ax1.get_ylim()[1] * 0.5 if ax1.get_ylim()[1] > 0 else 150),
+             xytext=(40, 20), textcoords='offset points',
+             fontsize=8, color='#E74C3C', fontweight='bold',
+             arrowprops=dict(arrowstyle='->', color='#E74C3C', lw=1.0))
 
-spam_mask = df['spam_active'] == True
-if spam_mask.any():
-    spam_start = df.loc[spam_mask, 'block_number'].iloc[0]
-    spam_end = df.loc[spam_mask, 'block_number'].iloc[-1]
-    ax1.axvspan(spam_start, spam_end, alpha=0.06, color='#E74C3C')
-    ax1.axvline(x=spam_start, color='#E74C3C', linestyle=':', linewidth=1, alpha=0.5)
-    ax1.axvline(x=spam_end, color='#E74C3C', linestyle=':', linewidth=1, alpha=0.5)
+cap_blocks = df['challenge_window_blocks'].max()
+cap_start = df.loc[df['challenge_window_blocks'] == cap_blocks, 'base_fee_gwei'].iloc[0]
+ax1.axhline(y=cap_blocks, color='#27AE60', linestyle=':', linewidth=1.2, alpha=0.6)
+ax1.text(df['base_fee_gwei'].iloc[0] + 10, cap_blocks + 8,
+         f'Cap: {int(cap_blocks)} blocks', fontsize=8, color='#27AE60', fontstyle='italic')
 
-    mid_block = (spam_start + spam_end) / 2
-    ax1.text(mid_block, ax1.get_ylim()[1] * 0.92, 'MEV Spam Active',
-             ha='center', fontsize=8, color='#E74C3C', fontweight='bold',
-             fontstyle='italic', alpha=0.7)
+stable_mask = df['challenge_window_blocks'] == df['challenge_window_blocks'].iloc[0]
+stable_end_fee = df.loc[stable_mask, 'base_fee_gwei'].max()
+ramp_mask = (df['base_fee_gwei'] > stable_end_fee) & (df['challenge_window_blocks'] < cap_blocks)
+cap_mask = df['challenge_window_blocks'] == cap_blocks
 
+if stable_mask.any():
+    mid_fee = df.loc[stable_mask, 'base_fee_gwei'].median()
+    ax1.text(mid_fee, df['challenge_window_blocks'].iloc[0] - 15,
+             'Stable Zone', ha='center', fontsize=8, color='#2980B9',
+             fontweight='bold', fontstyle='italic', alpha=0.8)
 
-ax2 = ax1.twinx()
-ax2.plot(df['block_number'], df['challenge_window_sec'],
-         color=COLOR_LINE_ACCENT, linewidth=2.5, label='Challenge Window Δt (sec)')
-ax2.set_ylabel('Challenge Window $\\Delta_t$ (seconds)', color=COLOR_LINE_ACCENT)
-ax2.tick_params(axis='y', labelcolor=COLOR_LINE_ACCENT)
-ax2.spines['right'].set_color(COLOR_LINE_ACCENT)
+if ramp_mask.any():
+    ramp_fees = df.loc[ramp_mask, 'base_fee_gwei']
+    mid_ramp = ramp_fees.median()
+    mid_val = df.loc[ramp_mask, 'challenge_window_blocks'].median()
+    ax1.text(mid_ramp, mid_val + 15,
+             'Linear Ramp', ha='center', fontsize=8, color='#E67E22',
+             fontweight='bold', fontstyle='italic', alpha=0.8)
 
+if cap_mask.sum() > 1:
+    cap_fees = df.loc[cap_mask, 'base_fee_gwei']
+    mid_cap = cap_fees.median()
+    ax1.text(mid_cap, cap_blocks - 20,
+             'Saturated', ha='center', fontsize=8, color='#27AE60',
+             fontweight='bold', fontstyle='italic', alpha=0.8)
 
-ax1.axhline(y=100, color='#999', linestyle='--', linewidth=0.8, alpha=0.5)
-ax1.text(df['block_number'].iloc[0], 110, 'baseFee threshold (100 Gwei)',
-         fontsize=7, color='#999', fontstyle='italic')
-
-ax1.set_title('MEV Censorship Resistance:\nDynamic Challenge Window Response to Base Fee Spikes', pad=12)
-
+ax1.set_title('MEV Censorship Resistance:\nDynamic Challenge Window Response to Base Fee', pad=12)
 
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 legend_elements = [
-    Patch(facecolor=COLOR_AREA_FILL, alpha=0.35, label='Base Fee (Gwei)'),
-    Line2D([0], [0], color=COLOR_LINE_ACCENT, linewidth=2.5, label='Challenge Window $\\Delta_t$'),
-    Patch(facecolor='#E74C3C', alpha=0.1, label='MEV Spam Period'),
+    Line2D([0], [0], color=COLOR_LINE_ACCENT, linewidth=2.5, marker='o',
+           markersize=5, label='Challenge Window (blocks)'),
+    Patch(facecolor=COLOR_AREA_FILL, alpha=0.25, label='Window Area'),
+    Line2D([0], [0], color='#E74C3C', linestyle='--', linewidth=1.5,
+           label='Fee Threshold (100 Gwei)'),
+    Line2D([0], [0], color='#27AE60', linestyle=':', linewidth=1.2,
+           label=f'Cap ({int(cap_blocks)} blocks)'),
 ]
-ax1.legend(handles=legend_elements, loc='upper left', fontsize=8)
+ax1.legend(handles=legend_elements, loc='upper left', fontsize=8, framealpha=0.9)
 
 fig.tight_layout()
 savefig(fig, 'fig5_mev_censorship.png')

@@ -1,12 +1,7 @@
-"""
-Scenario 2: Gas Economics — Grouped Bar Chart
-Compares Total Pipeline Gas vs User-Paid Gas across protocols.
-Shows CrossRand's advantage: users pay only ~115k gas.
-"""
 import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
-from ieee_style import (apply_ieee_style, FIGURE_WIDTH, FIGURE_HEIGHT, 
-                        DATA_DIR, plt, savefig, PALETTE_BARS)
+from ieee_style import (apply_ieee_style, FIGURE_WIDTH, FIGURE_HEIGHT,
+                        DATA_DIR, plt, savefig)
 import pandas as pd
 import numpy as np
 
@@ -19,37 +14,31 @@ if not os.path.exists(csv_path):
 
 df = pd.read_csv(csv_path)
 
-
 gas_dict = dict(zip(df['operation'], df['gas_used']))
-
 
 protocols = {
     'Chainlink\nVRF v2': {
-        'total': gas_dict.get('Chainlink_VRF_Request', 102000) 
-               + gas_dict.get('Chainlink_VRF_Fulfill', 203000),
-        'user_paid': gas_dict.get('Chainlink_VRF_Request', 102000) 
-                   + gas_dict.get('Chainlink_VRF_Fulfill', 203000),
-        'note': 'User pays everything',
+        'total': gas_dict.get('Chainlink_VRF_Request', 100000)
+               + gas_dict.get('Chainlink_VRF_Fulfill', 200000),
+        'user_paid': gas_dict.get('Chainlink_VRF_Request', 100000)
+                   + gas_dict.get('Chainlink_VRF_Fulfill', 200000),
     },
     'DRAND\n(BLS Verify)': {
-        'total': gas_dict.get('Drand_Verify', 182000),
-        'user_paid': gas_dict.get('Drand_Verify', 182000),
-        'note': 'User pays everything',
+        'total': gas_dict.get('Drand_Verify', 150000),
+        'user_paid': gas_dict.get('Drand_Verify', 150000),
     },
     'API3\nQRNG': {
-        'total': gas_dict.get('API3_QRNG_Request', 55000) 
+        'total': gas_dict.get('API3_QRNG_Request', 55000)
                + gas_dict.get('API3_QRNG_Fulfill', 118000),
-        'user_paid': gas_dict.get('API3_QRNG_Request', 55000) 
+        'user_paid': gas_dict.get('API3_QRNG_Request', 55000)
                    + gas_dict.get('API3_QRNG_Fulfill', 118000),
-        'note': 'User pays everything',
     },
     'CrossRand\n(Ours)': {
-        'total': gas_dict.get('requestRandomness', 28191) 
-               + gas_dict.get('submitOptimisticResult_ZK', 756934) 
-               + gas_dict.get('finalizeRandomness', 87813),
-        'user_paid': gas_dict.get('requestRandomness', 28191) 
-                   + gas_dict.get('finalizeRandomness', 87813),
-        'note': 'Relayer absorbs ZK verification',
+        'total': gas_dict.get('requestRandomness', 28191)
+               + gas_dict.get('submitOptimisticResult_ZK', 513227)
+               + gas_dict.get('finalizeRandomness', 87869),
+        'user_paid': gas_dict.get('requestRandomness', 28191)
+                   + gas_dict.get('finalizeRandomness', 87869),
     },
 }
 
@@ -62,29 +51,24 @@ bar_width = 0.35
 
 fig, ax = plt.subplots(figsize=(FIGURE_WIDTH + 1.0, FIGURE_HEIGHT + 0.5))
 
-
-bars_total = ax.bar(x - bar_width/2, totals, bar_width, 
+bars_total = ax.bar(x - bar_width/2, totals, bar_width,
                     color='#34495E', edgecolor='white', linewidth=1.2,
                     label='Total Pipeline Gas', alpha=0.85)
-bars_user = ax.bar(x + bar_width/2, user_paid, bar_width, 
+bars_user = ax.bar(x + bar_width/2, user_paid, bar_width,
                    color='#2ECC71', edgecolor='white', linewidth=1.2,
                    label='User-Paid Gas Only')
-
 
 for bar in bars_total:
     height = bar.get_height()
     ax.text(bar.get_x() + bar.get_width()/2, height + max(totals)*0.01,
-            f'{int(height):,}', ha='center', va='bottom', 
+            f'{int(height):,}', ha='center', va='bottom',
             fontweight='bold', fontsize=8, color='#34495E')
 
 for bar in bars_user:
     height = bar.get_height()
     ax.text(bar.get_x() + bar.get_width()/2, height + max(totals)*0.01,
-            f'{int(height):,}', ha='center', va='bottom', 
+            f'{int(height):,}', ha='center', va='bottom',
             fontweight='bold', fontsize=8.5, color='#1A8F4B')
-
-
-
 
 ax.set_ylabel('Gas Consumed')
 ax.set_title('On-chain Gas Cost: Total Pipeline vs. User-Paid', pad=15)
@@ -94,13 +78,12 @@ ax.set_ylim(0, max(totals) * 1.25)
 ax.grid(axis='y', linestyle='--', alpha=0.4)
 ax.legend(loc='upper right', framealpha=0.9, fontsize=9)
 
-
 footnote = ("* CrossRand: ZK Verification Gas (Halo2 IPA verifier, no trusted setup) paid by off-chain Relayers,\n"
             "  amortized across batches. DApp users pay only Request + Finalize.")
-fig.text(0.5, -0.04, footnote, ha='center', va='top', fontsize=8.5, 
+fig.text(0.5, -0.04, footnote, ha='center', va='top', fontsize=8.5,
          style='italic', color='#444444',
          bbox=dict(facecolor='#F4F6F6', alpha=0.8, edgecolor='#BDC3C7', pad=6))
 
 fig.tight_layout()
 savefig(fig, 'fig2_gas_economics.png')
-print("Done: fig2_gas_economics.png (Grouped)")
+print("Done: fig2_gas_economics.png")
