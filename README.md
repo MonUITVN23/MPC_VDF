@@ -87,45 +87,7 @@ Source Chain (Sepolia)            Off-chain Relayer (Rust)           Destination
 
 ## End-to-End Workflow
 
-```mermaid
-sequenceDiagram
-    participant U as dApp User
-    participant R as RandomRouter (Source)
-    participant N as Off-chain Node (Rust)
-    participant B as Bridge (Axelar/LZ/WH)
-    participant D as RandomReceiver (Destination)
-
-    U->>R: 1. requestRandomness(seed_user)
-    R-->>N: 2. Emit LogRequest event
-
-    rect rgb(30, 40, 60)
-    Note over N: Off-chain Cryptographic Pipeline
-    N->>N: 3a. MPC Threshold Sign → seed_collective
-    N->>N: 3b. VDF Eval: y = x^(2^T)
-    N->>N: 3c. VDF Proof: π (Wesolowski)
-    N->>N: 3d. ZK Prove: Halo2(sig, hash)
-    end
-
-    N->>R: 4. relayVDFPayload(y, π, ZK_proof)
-    R->>B: 5. dispatchPayload(bridgeId, payload)
-
-    rect rgb(40, 30, 60)
-    Note over B: Cross-chain Transport
-    B-->>D: 6. Deliver payload
-    end
-
-    D->>D: 7a. Verify Halo2 ZK Proof
-    D->>D: 7b. Enqueue optimistic result
-
-    rect rgb(60, 30, 40)
-    Note over D: Dispute Resolution
-    alt Challenge Window (configurable)
-        D->>D: Watcher challenges → on-chain VDF verify
-    else No Challenge
-        D-->>U: 8. Finalized randomness available
-    end
-    end
-```
+![End-to-End Workflow](./assets/The_High_Level_Architecture.png)
 
 ---
 
